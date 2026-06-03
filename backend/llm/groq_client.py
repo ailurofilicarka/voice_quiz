@@ -8,23 +8,28 @@ from groq import Groq
 
 # Load API key
 load_dotenv()
-api_key = os.getenv("GROQ_API_KEY")
-
-if not api_key:
-    print("ERROR: GROQ_API_KEY not found in your .env file.")
-    print("Make sure you created a .env file with: GROQ_API_KEY=your_key_here")
-    exit(1)
-
-# Create Groq client
-client = Groq(api_key=api_key)
 
 # Default configuration
-MODEL        = "llama-3.3-70b-versatile"    # LLM
-NUM_QUESTIONS = 5                           # how many questions per quiz
-TOPIC         = "general knowledge"         # topic
+MODEL = "llama-3.3-70b-versatile"    # LLM
+NUM_QUESTIONS = 5                    # default number of questions
 
 TEST_DATASET_PATH = "archive/quiz_questions.csv"
 TEST_RESULTS_PATH = "results/test_results.csv"
+
+# Client initialization
+client = None       # will be created on first use
+
+def get_client() -> Groq:
+    
+    global client
+    
+    if client is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY not found in your .env file.")
+        client = Groq(api_key=api_key)
+
+    return client
 
 # Asks the LLM to come up with one quiz question.
 # Returns just the question text.
@@ -37,7 +42,7 @@ def generate_question(topic: str, question_number: int, previous_questions: list
     else:
         avoid_text = ""
 
-    response = client.chat.completions.create(
+    response = get_client().chat.completions.create(
         model=MODEL,
 
         messages=[
@@ -76,10 +81,9 @@ def generate_question(topic: str, question_number: int, previous_questions: list
 
 
 # Asks LLM to judge whether the answer is correct
-# string mathcing??
 def evaluate_answer(question: str, user_answer: str) -> tuple[bool, str]:
 
-    response = client.chat.completions.create(
+    response = get_client().chat.completions.create(
         model=MODEL,
 
         messages=[
@@ -120,6 +124,8 @@ def evaluate_answer(question: str, user_answer: str) -> tuple[bool, str]:
 
     return is_correct, llm_response
 
+# Terminal quiz mode
+# runs only when u do: py grok_client.py
 # main quiz loop
 def run_quiz():
 
@@ -127,9 +133,8 @@ def run_quiz():
     print("LLM: Groq /", MODEL)
     print("=" * 50)
 
-    print(f"\nDefault topic: {TOPIC}")
-    topic_input = input("Enter a topic (or press Enter to use default): ").strip()
-    topic = topic_input if topic_input else TOPIC
+    topic = input("\nEnter a topic (or press Enter for 'general knowledge': )").strip() \
+            or "general knowledge"
 
     num_input = input(f"How many questions? (press Enter for {NUM_QUESTIONS}): ").strip()
     try:
@@ -138,7 +143,6 @@ def run_quiz():
         num_questions = NUM_QUESTIONS
 
     print(f"\nStarting quiz: {num_questions} questions about '{topic}'")
-    print("Type your answer and press Enter.\n")
     print("-" * 50)
 
     # quiz loop
@@ -168,9 +172,9 @@ def run_quiz():
 
         if is_correct:
             correct_count += 1
-            print(f"{explanation}")
+            print(f"CORRECT {explanation}")
         else:
-            print(f"{explanation}")
+            print(f"WRONG {explanation}")
 
         print("-" * 50)
 
@@ -196,7 +200,7 @@ def answer_question(question: str) -> tuple[str, float]:
 
     t_start = time.time()
 
-    response = client.chat.completions.create(
+    response = get_client().chat.completions.create(
         model=MODEL,
         messages=[
             {

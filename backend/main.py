@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from pathlib import Path
 import time
 import io
+
+from llm.groq_client import evaluate_answer
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -31,10 +33,9 @@ async def no_cache_static(request, call_next):
 
 # Pydantic models
 class ModelConfig(BaseModel):
-    stt: str = "whisper-openai"     # sst model
-    llm: str = "gpt4o-mini"         # llm
-    tts: str = "openai-tts"         # tss model
-
+    stt: str = "whisper-openai"
+    llm: str = "gpt4o-mini"
+    tts: str = "openai-tts"
 
 class AnswerRequest(BaseModel):
     transcript: str               # what the user said (from STT)
@@ -129,46 +130,37 @@ async def transcribe_audio(audio: UploadFile = File(...), stt_model: str = "whis
     }
 
 @app.post("/api/evaluate")
-async def evaluate_answer(request: AnswerRequest):
+async def evaluate_answer_endpoint(request: AnswerRequest):
+
     t_start = time.time()
 
-    session = quiz_sessions.get("default") # simple single-session for now
+    try:
+        t_llm_start = time.time()
+        is_correct, llm_feedback = evaluate_answer(request.question, request.transcript)
+        llm_latency_ms = int((time.time() - t_llm_start) * 1000)
+    except Exception as e:
+        import traceback
+        print("\n=== LLM EVALUATION ERROR ===")
+        traceback.print_exc()
+        print("============================\n")
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM evaluation failed: {str(e)}"
+        )
 
-    # naive correctness check — just looks for keywords
-    correct_answers = {
-        "What is the capital of France?":                     ["paris"],
-        "What is the largest planet in our solar system?":    ["jupiter"],
-        "Who wrote the play Romeo and Juliet?":               ["shakespeare", "william"],
-        "What is the chemical symbol for water?":             ["h2o"],
-        "In what year did the First World War begin?":        ["1914"],
-    }
-    expected = correct_answers.get(request.question, [])
-    is_correct = any(
-        kw in request.transcript.lower() for kw in expected
-    )
-
-    # build feedback message
-    if is_correct:
-        feedback = f"Correct! Well done."
-    else:
-        hint = expected[0] if expected else "the correct answer"
-        feedback = f"Not quite — the answer was {hint}."
-
-    # decide next question
+    # decide next question - still hardcoded
     next_questions = get_placeholder_questions("general knowledge")
     next_idx = request.question_index + 1
     quiz_done = next_idx >= len(next_questions)
     next_question = "" if quiz_done else next_questions[next_idx]
 
+    # build feedback message
     if quiz_done:
-        message = feedback + " That was the last question — quiz complete!"
+        message = llm_feedback + " That was the last question — quiz complete!"
     else:
-        message = feedback + f" Next question: {next_question}"
+        message = llm_feedback + f" Next question: {next_question}"
 
-    latency_ms = {
-        "llm":   int((time.time() - t_start) * 1000),
-        "total": int((time.time() - t_start) * 1000),
-    }
+    total_latency_ms = int((time.time() - t_start) * 1000)
 
     return QuizResponse(
         success=True,
@@ -176,7 +168,10 @@ async def evaluate_answer(request: AnswerRequest):
         is_correct=is_correct,
         next_question=next_question,
         quiz_done=quiz_done,
-        latency_ms=latency_ms,
+        latency_ms={
+            "llm": llm_latency_ms,
+            "total": total_latency_ms,
+        },
     )
 
 # TO DO

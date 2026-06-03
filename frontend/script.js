@@ -15,7 +15,7 @@ const STATE_ICONS = {
     speaking: '🔊',
     listening: '👂',
     processing: '⏳',
-    error: '⚠️',       // not implemented yet
+    error: '⚠️',
 };
 
 const STATE_LABELS = {
@@ -67,66 +67,116 @@ let turnCount  = 0;
 let correctCount = 0;
 let isRunning  = false;
 
+let currentQuestion = '';
+let currentQuestionIndex = 0;
+
 async function startQuiz() {
     isRunning = true;
     turnCount = 0;
     correctCount = 0;
+    currentQuestionIndex = 0;
     document.getElementById('score-bar').style.display = 'flex';
     updateScore();
 
     setState(STATES.SPEAKING, 'Preparing your first question...');
 
-    // placeholder - simulate speaking for 1 sec
-    await sleep(1000);
-    if(!isRunning) return;
-    setState(STATES.LISTENING, 'What is the capital of France?');
-    setTranscript('');
+    try {
+        const response = await fetch('/api/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                topic: 'general knowledge',
+                num_questions: NUM_QUESTIONS,
+                config: config,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!isRunning) return;         // user pressed stop
+
+        currentQuestion = data.next_question;
+        currentQuestionIndex = 0;
+
+        setState(STATES.LISTENING, currentQuestion);
+        setTranscript('');
+
+    } catch (err) {
+        logDebug('error', 'startQuiz failed: ' + err.message);
+        setState(STATES.ERROR, 'Could not start quiz.');
+        isRunning = false;
+    }
 }
 
 async function pushToTalk() {
     if (!isRunning || currentState !== STATES.LISTENING) return;
 
-    // placeholder - simulate recording for 1 sec
     setState(STATES.PROCESSING, 'Processing your answer...');
-    setTranscript('Paris');
 
-    await sleep(1000);
+    // TODO
+    const fakeTranscript = 'Paris';
+    setTranscript(fakeTranscript);
 
-    if (!isRunning) return;
+    try {
+        const response = await fetch('/api/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                transcript: fakeTranscript,
+                question: currentQuestion,
+                question_index: currentQuestionIndex,
+                config: config,
+            }),
+        });
 
-    // placeholder - fake result
-    const isCorrect = Math.random() > 0.3;
-    if (isCorrect) correctCount++;
-    turnCount++;
-    updateScore();
-    recordTurn(isCorrect, 420, 680, 310);
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}`);
+        }
 
-    if (turnCount >= NUM_QUESTIONS) {
-        setState(STATES.IDLE, `Quiz complete! You got ${correctCount} out of ${NUM_QUESTIONS} correct.`);
+        const data = await response.json();
+        if (!isRunning) return;
 
-        document.getElementById('score-bar').style.display = 'none'
+        if (data.is_correct) correctCount++;
+        turnCount++;
+        updateScore();
+
+        recordTurn(data.is_correct, 0, data.latency_ms.llm || 0, 0);
+
+        // is quiz done?
+        if (data.quiz_done) {
+            setState(STATES.IDLE,
+                `Quiz complete! You got ${correctCount} out of ${NUM_QUESTIONS} correct.`);
+            document.getElementById('score-bar').style.display = 'none';
+            isRunning = false;
+            return;
+        }
+
+        setState(STATES.SPEAKING, data.message);
+
+        await sleep(1500);
+        if (!isRunning) return;
+
+        currentQuestion = data.next_question;
+        currentQuestionIndex++;
+
+        setState(STATES.LISTENING, currentQuestion);
+        setTranscript('');
+
+    } catch (err) {
+        logDebug('error', 'evaluate failed: ' + err.message);
+        setState(STATES.ERROR, 'Evaluation failed.');
         isRunning = false;
-        return;
     }
-
-    setState(STATES.SPEAKING, isCorrect
-        ? 'Correct! Paris is the capital of France. Next question coming up...'
-        : 'Not quite — the answer is Paris. Next question coming up...'
-    );
-
-    await sleep(1000);
-
-    if (!isRunning) return;
-
-    setState(STATES.LISTENING, 'What is the largest planet in our solar system?');
-    setTranscript('');
 }
 
 function stopQuiz() {
     isRunning = false;
     document.getElementById('score-bar').style.display = 'none';
     setState(STATES.IDLE,
-        `Quiz finished! You got ${correctCount} out of ${turnCount} correct.`
+        `Quiz stopped. You got ${correctCount} out of ${turnCount} correct.`
     );
     setTranscript('');
 }

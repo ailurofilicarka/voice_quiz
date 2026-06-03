@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Voice Quiz</title>
+
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&display=swap"
+            rel="stylesheet"
+        />
+
+        <link rel="stylesheet" href="/static/style.css?v=2"/>
+
+    </head>
+
+    <body>
+        <div class="app">
+
+            <!-- Header --> 
+            <header>
+                <h1>Voice Quiz</h1>
+            </header>
+
+            <!-- Main quiz card -->
+            <div class="card">
+ 
+                <!-- Score bar - hidden until quiz starts -->
+                <div class="score-bar" id="score-bar" style="display:none">
+                    <span>Question <span id="q-num"></span> of <span id="q-total"></span></span>
+                    <span>Correct: <span class="score-val" id="score-correct"></span></span>
+                </div>
+ 
+                <!-- The animated orb + state label + message -->
+                <div class="state-display">
+                    <div class="state-orb idle" id="state-orb">🎤</div>
+                    <div class="state-label" id="state-label">Ready</div>
+                    <div class="state-message" id="state-message">Press "Start quiz" to begin.</div>
+                </div>
+ 
+                <!-- Transcript box - what STT heard -->
+                <div class="transcript-box" id="transcript-box">
+                    <span id="transcript-text">Your spoken answer will appear here...</span>
+                </div>
+ 
+                <!-- Action buttons -->
+                <div class="btn-row" style="margin-top: 1.25rem;">
+                    <button class="btn btn-primary" id="btn-start" onclick="startQuiz()">
+                    ▶ Start quiz
+                    </button>
+                    <button class="btn" id="btn-ptt" onclick="pushToTalk()" disabled>
+                    🎙 Hold to speak
+                    </button>
+                    <button class="btn btn-danger" id="btn-stop" onclick="stopQuiz()" disabled>
+                    ■ Stop quiz
+                    </button>
+                </div>
+            </div>
+ 
+            <!-- Debug panel -->
+            <div class="card debug-panel">
+                <div class="debug-header" onclick="toggleDebug()">
+                    <div class="debug-title">
+                        ⚙ Model config
+                        <span id="debug-badge" style="
+                            font-size:10px; padding:2px 8px; border-radius:20px;
+                            background:var(--accent-dim); color:var(--accent);
+                            text-transform:none; letter-spacing:0;">active</span>
+                    </div>
+                    <button class="debug-toggle" id="debug-toggle-btn">hide ▲</button>
+                </div>
+        
+                <div class="debug-body" id="debug-body">
+    
+                    <!-- Model selectors -->
+                    <div class="model-grid">
+                        <div class="model-selector">
+                            <label>STT model</label>
+                            <select id="sel-stt" onchange="updateConfig()">
+                            <option value="whisper-openai">Whisper (OpenAI)</option>
+                            <option value="whisper-groq">Whisper (Groq)</option>
+                            <option value="deepgram">Deepgram Nova-2</option>
+                            </select>
+                        </div>
+                        <div class="model-selector">
+                            <label>LLM model</label>
+                            <select id="sel-llm" onchange="updateConfig()">
+                            <option value="gpt4o-mini">GPT-4o mini</option>
+                            <option value="claude-sonnet">Claude Sonnet</option>
+                            <option value="llama-groq">Llama 3.3 (Groq)</option>
+                            </select>
+                        </div>
+                        <div class="model-selector">
+                            <label>TTS model</label>
+                            <select id="sel-tts" onchange="updateConfig()">
+                            <option value="openai-tts">OpenAI TTS-1</option>
+                            <option value="elevenlabs">ElevenLabs</option>
+                            <option value="kokoro">Kokoro (local)</option>
+                            </select>
+                        </div>
+                    </div>
+    
+                    <!-- Live metrics -->
+                    <div class="metrics-row">
+                        <div class="metric">
+                            <div class="metric-val" id="m-total">—</div>
+                            <div class="metric-lbl">total ms</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-val" id="m-turns">0</div>
+                            <div class="metric-lbl">turns</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-val" id="m-acc">—</div>
+                            <div class="metric-lbl">accuracy</div>
+                        </div>
+                    </div>
+    
+                    <!-- Turn log -->
+                    <div class="log-box" id="log-box">
+                        <div class="log-entry">
+                            <span class="log-ts">—</span>
+                            <span>No turns yet. Start the quiz to begin logging.</span>
+                        </div>
+                    </div>
+    
+                    <!-- Debug actions -->
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                        <button class="btn" style="font-size:12px; padding:0.4rem 1rem;"
+                            onclick="exportLog()">↓ Export log (.csv)</button>
+                        <button class="btn" style="font-size:12px; padding:0.4rem 1rem;"
+                            onclick="clearLog()">✕ Clear log</button>
+                    </div>
+    
+                </div><!-- /debug-body -->
+            </div><!-- /debug-panel -->
+        </div><!-- /app -->
+
+        <script src="/static/script.js?v=2"></script>
+
+    </body>
+
+</html>

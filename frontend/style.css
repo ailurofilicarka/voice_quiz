@@ -1,0 +1,300 @@
+/* CSS variables */
+:root {
+    --bg:        #0e0f11;   /* main background */
+    --surface:   #1a1b1f;   /* cards/panels */
+    --border:    #2a2b30;   /* subtle borders */
+    --text:      #e8e6e0;   /* primary text */
+    --muted:     #6b6a65;   /* secondary/hint text */
+    --accent:    #4ade80;   /* the "active / listening" colour */
+    --accent-dim:#1a3d28;   /* backgrounds */
+    --danger:    #f87171;   /* errors */
+    --warning:   #fbbf24;   /* processing state */
+    --radius:    12px;
+    --font-body: 'DM Mono', monospace;
+    --font-head: 'DM Serif Display', serif;
+}
+
+/* Reset and base */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+}
+
+/* Layout wrapper */
+.app {
+    width: 100%;
+    max-width: 560px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Header */
+header {
+    text-align: center;
+    padding: 1rem 0 0.5rem;
+}
+header h1 {
+    font-family: var(--font-head);
+    font-size: 2rem;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    color: var(--text);
+}
+
+/* Card */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+}
+
+/* State display */
+.state-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 2rem 1rem;
+}
+
+/* The animated circle — changes colour based on state */
+.state-orb {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--border);
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    transition: background-color 0.3s, border-color 0.3s;
+    position: relative;
+}
+
+/* pulse animation */
+.state-orb.pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { transform: scale(1);    opacity: 1;   }
+    50%       { transform: scale(1.08); opacity: 0.85; }
+}
+
+/* Colour variants for each quiz state */
+.state-orb.idle       { background: var(--border); border-color: var(--border); }
+.state-orb.speaking   { background: #1e2a4a; border-color: #3b82f6; }
+.state-orb.listening  { background: var(--accent-dim); border-color: var(--accent); }
+.state-orb.processing { background: #2d2010; border-color: var(--warning); }
+.state-orb.error      { background: #2d1010; border-color: var(--danger); }
+
+.state-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* The main message shown to the user (question text, feedback, etc.) */
+.state-message {
+    font-size: 15px;
+    color: var(--text);
+    text-align: center;
+    min-height: 2.5rem;          /* prevents layout jump when text appears */
+    line-height: 1.6;
+}
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.5rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.btn:hover { background: var(--border); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Green "start" button */
+.btn-primary {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.btn-primary:hover { background: #22543d; }
+
+/* Red "stop" button */
+.btn-danger {
+    background: #2d1010;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.btn-danger:hover { background: #3d1515; }
+
+.btn-row {
+display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+/* Transcript box */
+.transcript-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    min-height: 2.5rem;
+    font-size: 13px;
+    color: var(--muted);
+}
+.transcript-box span {
+    color: var(--text);     /* actual transcript text is brighter */
+}
+
+/* Debug panel */
+.debug-panel {
+    border-color: #2a2b30;
+}
+.debug-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+.debug-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.debug-toggle {
+    font-size: 11px;
+    color: var(--muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-body);
+}
+
+/* The body of the debug panel */
+.debug-body {
+    margin-top: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.debug-body.hidden { display: none; }
+
+/* Three-column grid for STT / LLM / TTS selectors */
+.model-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+}
+.model-selector label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+}
+.model-selector select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 12px;
+    padding: 0.4rem 0.5rem;
+    cursor: pointer;
+}
+.model-selector select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Metrics row */
+.metrics-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+}
+.metric {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+}
+.metric-val {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+}
+.metric-lbl {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+/* Turn log — scrollable list of past turns */
+.log-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    max-height: 140px;
+    overflow-y: auto;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--font-body);
+}
+.log-entry {
+    display: flex;
+    gap: 0.5rem;
+    padding: 2px 0;
+    border-bottom: 1px solid var(--border);
+}
+.log-entry:last-child { border-bottom: none; }
+.log-ok  { color: var(--accent); }
+.log-err { color: var(--danger); }
+.log-ts  { color: var(--muted); flex-shrink: 0; }
+
+/* Score bar */
+.score-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    font-size: 12px;
+    color: var(--muted);
+}
+.score-val { color: var(--accent); font-weight: 500; }

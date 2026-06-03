@@ -1,0 +1,36 @@
+# requirements.txt — Python dependencies for the Voice Quiz backend
+#
+# Install everything with:
+#   pip install -r requirements.txt
+#
+# Then run the server with:
+#   uvicorn main:app --reload --port 8000
+
+# ── Web framework ──────────────────────────────────────────────────────────────
+fastapi==0.111.0        # The web framework — handles routing, validation, docs
+uvicorn[standard]==0.29.0  # The ASGI server that runs FastAPI (like Apache for Python)
+
+# ── Data validation ────────────────────────────────────────────────────────────
+pydantic==2.7.1         # Used by FastAPI to validate request/response shapes
+
+# ── File handling ──────────────────────────────────────────────────────────────
+python-multipart==0.0.9 # Required for receiving file uploads (audio recordings)
+
+# ── HTTP client (for calling external APIs) ────────────────────────────────────
+httpx==0.27.0           # Modern async HTTP client — used to call STT/LLM/TTS APIs
+
+# ── Environment variables ──────────────────────────────────────────────────────
+python-dotenv==1.0.1    # Loads API keys from a .env file (keeps secrets out of code)
+
+# LLM client
+groq==0.9.0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FUTURE DEPENDENCIES (uncomment when you add real API calls in later steps)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# openai==1.30.1        # OpenAI SDK — for Whisper STT, GPT-4o-mini LLM, TTS-1
+# anthropic==0.28.0     # Anthropic SDK — for Claude Sonnet
+# groq==0.9.0           # Groq SDK — for Whisper-on-Groq and Llama 3.3
+# elevenlabs==1.2.0     # ElevenLabs SDK — for high-quality TTS voices

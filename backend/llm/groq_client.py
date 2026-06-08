@@ -98,6 +98,9 @@ def evaluate_answer(question: str, user_answer: str) -> tuple[bool, str]:
                     "- The FIRST word of your response must be either CORRECT or WRONG — "
                     "  this is critical, do not start with anything else\n"
                     "- After that first word, add one short sentence of explanation\n"
+                    "- If the user did not provide an answer, says they don't know, or "
+                    "  gives an unrelated/nonsense response, mark it WRONG and "
+                    "  ALWAYS include the correct answer in your explanation\n"
                     "- Keep your total response under 30 words\n\n"
                 )
             },

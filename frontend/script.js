@@ -56,8 +56,8 @@ function setState(newState, message = '') {
 /* QUIZ FLOW FUNCTIONS */
 
 let config = {
-    stt: 'whisper-openai',
-    llm: 'gpt4o-mini',
+    stt: 'whisper-groq',
+    llm: 'llama-groq',
     tts: 'openai-tts',
 };
 
@@ -69,6 +69,11 @@ let isRunning  = false;
 
 let currentQuestion = '';
 let currentQuestionIndex = 0;
+
+// MEDIA RECORDER STATE
+let mediaRecorder = null;   // MediaRecorder instance
+let recordingChunks = [];   // audio data chunks
+let audioStream = null;      // raw mic stram from the browser
 
 async function startQuiz() {
     isRunning = true;
@@ -114,39 +119,144 @@ async function startQuiz() {
 async function pushToTalk() {
     if (!isRunning || currentState !== STATES.LISTENING) return;
 
-    setState(STATES.PROCESSING, 'Processing your answer...');
+    // 'stop' is pressed
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        stopRecording();
+        return;
+    }
 
-    // TODO
-    const fakeTranscript = 'Paris';
-    setTranscript(fakeTranscript);
+    // "speak" is pressed
+    await startRecording();
+}
+
+async function startRecording() {
+    try {
+        // request microphone access
+        audioStream = await navigator.mediaDevices.getUserMedia({audio: true});
+    } catch (err) {
+        logDebug('error', 'mic access failed' + err.message);
+        setState(STATES.ERROR, 'Could not access microphone!');
+        isRunning = false;
+        return;
+    }
+
+    recordingChunks = [];
+
+    // create the recorder
+    mediaRecorder = new MediaRecorder(audioStream);
+
+    // collect small audio chunks
+    mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+            recordingChunks.push(event.data);
+        }
+    };
+
+    // assemble all chunks into a single Blob
+    mediaRecorder.onstop = async () => {
+        const mimeType = mediaRecorder.mimeType;
+        const audioBlob = new Blob(recordingChunks, { type: mimeType });
+
+        releaseMicrophone();
+
+        await processRecording(audioBlob, mimeType);
+    };
+
+    mediaRecorder.start();
+
+    document.getElementById('btn-ptt').textContent = '⏹ Stop';
+    setState(STATES.LISTENING, '🔴 Recording...');
+    logDebug('info', 'recording started');
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+    }
+    document.getElementById('btn-ptt').textContent = '🎙 Speak';
+}
+
+function releaseMicrophone() {
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+    }
+}
+
+async function processRecording(audioBlob, mimeType) {
+    setState(STATES.PROCESSING, 'Transcribing your answer...');
+
+    if (audioBlob.size < 1000) {
+        logDebug('warn', 'recording too short (' + audioBlob.size + 'bytes)');
+        setState(STATES.LISTENING, currentQuestion);
+        setTranscript('(too short - speak longer)');
+        return;
+    }
 
     try {
-        const response = await fetch('/api/evaluate', {
+        // send audio to /api/transcribe
+        const extension = mimeTypeToExtension(mimeType);
+        const formData = new FormData();
+        formData.append('audio', audioBlob, `recording.${extension}`);
+
+        const transcribeResponse = await fetch(
+            `/api/transcribe?stt_model=${encodeURIComponent(config.stt)}`,
+            { method: 'POST', body: formData }
+            // browser sets automatically Content-Type header here
+        );
+
+        if (!transcribeResponse.ok) {
+            throw new Error(`STT failed (HTTP ${transcribeResponse.status})`);
+        }
+
+        const transcribeData = await transcribeResponse.json();
+
+        const sttTranscript = transcribeData.transcript;
+        const sttLatencyMs = transcribeData.latency_ms?.stt || 0;
+
+        setTranscript(sttTranscript);
+        logDebug('info', `transcript: "${sttTranscript}" (${sttLatencyMs}ms)`)
+
+        if (!isRunning) return;     // if user clicked 'stop'
+
+        // send transcript to /api/evaluate
+        setState(STATES.PROCESSING, 'Evaluating your answer...');
+
+        const evaluateResponse = await fetch('/api/evaluate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                transcript: fakeTranscript,
+                transcript: sttTranscript,
                 question: currentQuestion,
                 question_index: currentQuestionIndex,
                 config: config,
             }),
         });
 
-        if (!response.ok) {
-            throw new Error(`Server returned ${response.status}`);
+        if (!evaluateResponse.ok) {
+            throw new Error(`Evaluate filed ${evaluateResponse.status}`);
         }
 
-        const data = await response.json();
+        const evalData = await evaluateResponse.json();
         if (!isRunning) return;
 
-        if (data.is_correct) correctCount++;
+        // update score and continue the quiz
+        if (evalData.is_correct) correctCount++;
         turnCount++;
         updateScore();
 
-        recordTurn(data.is_correct, 0, data.latency_ms.llm || 0, 0);
+        recordTurn(
+            evalData.is_correct,
+            sttLatencyMs,
+            evalData.latency_ms?.llm || 0,
+            0,
+        );
 
-        // is quiz done?
-        if (data.quiz_done) {
+        setState(STATES.SPEAKING, evalData.message);
+        await sleep(2500);      // TODO
+        if (!isRunning) return;
+
+        if (evalData.quiz_done) {
             setState(STATES.IDLE,
                 `Quiz complete! You got ${correctCount} out of ${NUM_QUESTIONS} correct.`);
             document.getElementById('score-bar').style.display = 'none';
@@ -154,26 +264,39 @@ async function pushToTalk() {
             return;
         }
 
-        setState(STATES.SPEAKING, data.message);
-
-        await sleep(1500);
-        if (!isRunning) return;
-
-        currentQuestion = data.next_question;
+        currentQuestion = evalData.next_question;
         currentQuestionIndex++;
 
         setState(STATES.LISTENING, currentQuestion);
         setTranscript('');
 
     } catch (err) {
-        logDebug('error', 'evaluate failed: ' + err.message);
-        setState(STATES.ERROR, 'Evaluation failed.');
+        logDebug('error', 'pipeline failed: ' + err.message);
+        setState(STATES.ERROR, err.message);
         isRunning = false;
     }
+    
+}
+
+function mimeTypeToExtension(mimeType) {
+    if (!mimeType) return 'webm';
+    if (mimeType.includes('webm')) return 'webm';
+    if (mimeType.includes('ogg')) return 'ogg';
+    if (mimeType.includes('mp4')) return 'mp4';
+    if (mimeType.includes('mp3')) return 'mp3';
+    if (mimeType.includes('wav')) return 'wav';
+    return 'webm';
 }
 
 function stopQuiz() {
     isRunning = false;
+
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+    }
+    releaseMicrophone();
+
+    document.getElementById('btn-ptt').textContent = '🎙 Speak';
     document.getElementById('score-bar').style.display = 'none';
     setState(STATES.IDLE,
         `Quiz stopped. You got ${correctCount} out of ${turnCount} correct.`
@@ -200,7 +323,7 @@ function setTranscript(text) {
     document.getElementById('transcript-text').textContent = text || 'Your spoken answer will appear here...';
 }
 
-// async sleep helper - used for fake delays
+// async sleep helper
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }

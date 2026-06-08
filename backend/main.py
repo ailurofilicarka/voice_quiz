@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from pathlib import Path
 import time
 import io
+import traceback
 
-from llm.groq_client import evaluate_answer
+from llm.groq_client import evaluate_answer, generate_question
+from stt.whisper_groq import transcribe
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -33,8 +35,8 @@ async def no_cache_static(request, call_next):
 
 # Pydantic models
 class ModelConfig(BaseModel):
-    stt: str = "whisper-openai"
-    llm: str = "gpt4o-mini"
+    stt: str = "whisper-groq"
+    llm: str = "llama-groq"
     tts: str = "openai-tts"
 
 class AnswerRequest(BaseModel):
@@ -43,12 +45,10 @@ class AnswerRequest(BaseModel):
     question_index: int           # which question number
     config: ModelConfig           # which models to use
 
-
 class StartRequest(BaseModel):
     topic: str = "general knowledge"
     num_questions: int = 5
     config: ModelConfig = ModelConfig()
-
 
 class QuizResponse(BaseModel):
     success: bool
@@ -59,16 +59,7 @@ class QuizResponse(BaseModel):
     latency_ms: dict = {}         # timing data for the debug panel
 
 # in-memory quiz state
-quiz_sessions = {}   # session_id → quiz state dict
-
-def get_placeholder_questions(topic: str) -> list[str]:
-    return [
-        "What is the capital of France?",
-        "What is the largest planet in our solar system?",
-        "Who wrote the play Romeo and Juliet?",
-        "What is the chemical symbol for water?",
-        "In what year did the First World War begin?",
-    ] # hard coded questions for now
+current_session = {}   # session_id → quiz state dict
 
 @app.get("/")
 async def serve_frontend():
@@ -77,67 +68,112 @@ async def serve_frontend():
 # called when 'start quiz' pressed
 @app.post("/api/start")
 async def start_quiz(request: StartRequest):
+    global current_session
     t_start = time.time()
 
-    # create a simple session ID (timestamp-based for now)
-    session_id = str(int(time.time()))
+    # generate first question with LLM
+    try:
+        t_llm_start = time.time()
+        first_question = generate_question(
+            topic=request.topic,
+            question_number=1,
+            previous_questions=[],
+        )
+        llm_latency_ms = int((time.time() - t_llm_start) * 1000)
+    except Exception as e:
+        print("\n=== START QUIZ ERROR ===")
+        traceback.print_exc()
+        print("==========================")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate first question: {str(e)}"
+        )
 
-    # get questions
-    questions = get_placeholder_questions(request.topic)
-
-    # store session state in memory
-    quiz_sessions[session_id] = {
-        "questions":      questions,
-        "current_index":  0,
-        "correct_count":  0,
-        "config":         request.config.model_dump(),
+    # initialize the session
+    current_session = {
+        "topic": request.topic,
+        "num_questions": request.num_questions,
+        "previous_questions": [first_question],
+        "current_index": 0,
+        "correct_count": 0,
+        "config": request.config.model_dump(),
     }
 
-    first_question = questions[0]
-
-    # PLACEHOLDER latency (wiil be updated)
-    latency_ms = {"llm": 0, "tts": 0, "total": int((time.time() - t_start) * 1000)}
+    total_latency_ms = int((time.time() - t_start) * 1000)
 
     return {
         "success": True,
-        "session_id": session_id,
         "message": f"Welcome! Here is your first question: {first_question}",
         "next_question": first_question,
         "quiz_done": False,
-        "latency_ms": latency_ms,
+        "latency_ms": {
+            "llm": llm_latency_ms,
+            "total": total_latency_ms
+        },
     }
 
 # called after user voice been recorded
 @app.post("/api/transcribe")
-async def transcribe_audio(audio: UploadFile = File(...), stt_model: str = "whisper-openai"):
+async def transcribe_audio(audio: UploadFile = File(...), stt_model: str = "whisper-groq"):
     t_start = time.time()
 
     # read audio bytes - will be updated
     audio_bytes = await audio.read()
     file_size_kb = round(len(audio_bytes) / 1024, 1)
 
-    # fake transcript
-    transcript = "Paris"    # hardcoded for now
+    if not audio_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="No audio data received"
+        )
+    
+    filename = audio.filename or "audio.wav"    # so whisper can detect the format from the extension
 
-    latency_ms = int((time.time() - t_start) * 1000)
+    # Call SST module
+    # sst_model param is still only info
+    try:
+        t_sst_start = time.time()
+        transcript = transcribe(audio_bytes, filename=filename)
+        sst_latency_ms = int((time.time() - t_sst_start) * 1000)
+    except Exception as e:
+        print("\n=== SST ERROR ===")
+        traceback.print_exc()
+        print("====================\n")
+        raise HTTPException(
+            status_code=500,
+            detail=f"SST failed: {str(e)}"
+        )
+
+    total_latency_ms = int((time.time() - t_start) * 1000)
 
     return {
         "success": True,
         "transcript": transcript,
         "stt_model": stt_model,
         "file_size_kb": file_size_kb,
-        "latency_ms": latency_ms,
+        "latency_ms": {
+            "sst": sst_latency_ms,
+            "total": total_latency_ms,
+        },
     }
 
 @app.post("/api/evaluate")
 async def evaluate_answer_endpoint(request: AnswerRequest):
-
+    
+    global current_session
     t_start = time.time()
 
+    if not current_session:
+        raise HTTPException(
+            status_code=400,
+            detail="No active quiz session."
+        )
+
+    # evaluate user's answer
     try:
         t_llm_start = time.time()
         is_correct, llm_feedback = evaluate_answer(request.question, request.transcript)
-        llm_latency_ms = int((time.time() - t_llm_start) * 1000)
+        eval_latency_ms = int((time.time() - t_llm_start) * 1000)
     except Exception as e:
         import traceback
         print("\n=== LLM EVALUATION ERROR ===")
@@ -147,18 +183,38 @@ async def evaluate_answer_endpoint(request: AnswerRequest):
             status_code=500,
             detail=f"LLM evaluation failed: {str(e)}"
         )
+    
+    current_session["current_index"] += 1
+    if is_correct:
+        current_session["correct_count"] += 1
 
-    # decide next question - still hardcoded
-    next_questions = get_placeholder_questions("general knowledge")
-    next_idx = request.question_index + 1
-    quiz_done = next_idx >= len(next_questions)
-    next_question = "" if quiz_done else next_questions[next_idx]
+    quiz_done = current_session["current_index"] >= current_session["num_questions"]
 
-    # build feedback message
+    next_question = ""
+    gen_latency_ms = 0
+    if not quiz_done:
+        try:
+            t_gen_start = time.time()
+            next_question = generate_question(
+                topic = current_session["topic"],
+                question_number = current_session["current_index"] + 1,
+                previous_questions = current_session["previous_questions"],
+            )
+            gen_latency_ms = int((time.time() - t_gen_start) * 1000)
+            current_session["previous_questions"].append(next_question)
+        except Exception as e:
+            print("\n=== QUESTION GENERATION ERROR ===")
+            traceback.print_exc()
+            print("===================================")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to generate next question: {str(e)}"
+            )
+        
     if quiz_done:
-        message = llm_feedback + " That was the last question — quiz complete!"
+        message = llm_feedback + " That was the last question - quiz complete!"
     else:
-        message = llm_feedback + f" Next question: {next_question}"
+        message = llm_feedback
 
     total_latency_ms = int((time.time() - t_start) * 1000)
 
@@ -169,7 +225,9 @@ async def evaluate_answer_endpoint(request: AnswerRequest):
         next_question=next_question,
         quiz_done=quiz_done,
         latency_ms={
-            "llm": llm_latency_ms,
+            "llm": eval_latency_ms + gen_latency_ms,
+            "llm_eval": eval_latency_ms,
+            "llm_gen": gen_latency_ms,
             "total": total_latency_ms,
         },
     )

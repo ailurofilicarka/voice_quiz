@@ -75,6 +75,51 @@ let mediaRecorder = null;   // MediaRecorder instance
 let recordingChunks = [];   // audio data chunks
 let audioStream = null;      // raw mic stram from the browser
 
+// AUDIO PLAYBACK STATE
+let currentAudio = null;    // the audio object currently playing
+
+async function speakText(text) {
+    const response = await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({text: text, tts_model: config.tts}),
+    });
+
+    if (!response.ok) {
+        throw new Error(`TTS failed (HTTP ${response.status})`);
+    }
+
+    const ttsLatency = parseInt(response.headers.get('X-TTS-Latency-Ms') || '0', 10);
+
+    // read the response body as a blob (binary audio data)
+    const audioBlob = await response.blob();
+
+    // temporary URL that points at the blob in memory
+    const audioUrl = URL.createObjectURL(audioBlob);
+
+    // play the audio and wait until it finishes
+    await new Promise((reslove, reject) => {
+        currentAudio = new Audio(audioUrl);
+        currentAudio.onended = () => reslove();
+        currentAudio.onerror = () => reject(new Error('Audio playback failed'));
+        currentAudio.play().catch(reject);
+    });
+
+    // clean up
+    URL.revokeObjectURL(audioUrl);
+    currentAudio = null;
+
+    return ttsLatency;
+}
+
+// stop any currently playing audio
+function stopAudio() {
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+    }
+}
+
 async function startQuiz() {
     isRunning = true;
     turnCount = 0;
@@ -105,6 +150,16 @@ async function startQuiz() {
 
         currentQuestion = data.next_question;
         currentQuestionIndex = 0;
+
+        // speak the question out loud before opening the mic
+        setState(STATES.SPEAKING, currentQuestion);
+        try {
+            await speakText(currentQuestion);
+        } catch (err) {
+            logDebug('warn', 'TTS failed: ' + err.message);
+            await sleep(1500); // give time to read the text
+        }
+        if (!isRunning) return;
 
         setState(STATES.LISTENING, currentQuestion);
         setTranscript('');
@@ -245,17 +300,26 @@ async function processRecording(audioBlob, mimeType) {
         turnCount++;
         updateScore();
 
+        // speak the LLM's feedback out loud
+        setState(STATES.SPEAKING, evalData.message);
+        let ttsMs = 0;
+        try {
+            ttsMs = await speakText(evalData.message);
+        } catch (err) {
+            logDebug('warn', 'TTS failed: ' + err.message);
+            await sleep(1500); // fallback: time to read
+        }
+
         recordTurn(
             evalData.is_correct,
             sttLatencyMs,
             evalData.latency_ms?.llm || 0,
-            0,
+            ttsMs,
         );
 
-        setState(STATES.SPEAKING, evalData.message);
-        await sleep(2500);      // TODO
         if (!isRunning) return;
 
+        // is quiz done?
         if (evalData.quiz_done) {
             setState(STATES.IDLE,
                 `Quiz complete! You got ${correctCount} out of ${NUM_QUESTIONS} correct.`);
@@ -266,6 +330,15 @@ async function processRecording(audioBlob, mimeType) {
 
         currentQuestion = evalData.next_question;
         currentQuestionIndex++;
+
+        setState(STATES.SPEAKING, currentQuestion);
+        try {
+            await speakText(currentQuestion);
+        } catch (err) {
+            logDebug('warn', 'TTS failed: ', err.message);
+            await sleep(1500);
+        }
+        if (!isRunning) return;
 
         setState(STATES.LISTENING, currentQuestion);
         setTranscript('');
@@ -295,6 +368,7 @@ function stopQuiz() {
         mediaRecorder.stop();
     }
     releaseMicrophone();
+    stopAudio();
 
     document.getElementById('btn-ptt').textContent = '🎙 Speak';
     document.getElementById('score-bar').style.display = 'none';

@@ -10,6 +10,7 @@ import traceback
 
 from llm.groq_client import evaluate_answer, generate_question
 from stt.whisper_groq import transcribe
+from tts.tts_groq import synthesize
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -44,6 +45,10 @@ class AnswerRequest(BaseModel):
     question: str                 # the question that was asked
     question_index: int           # which question number
     config: ModelConfig           # which models to use
+
+class SpeakRequest(BaseModel):
+    text: str                     # the text to synthesize
+    tts_model: str = "orpheus"    # info for now
 
 class StartRequest(BaseModel):
     topic: str = "general knowledge"
@@ -232,33 +237,37 @@ async def evaluate_answer_endpoint(request: AnswerRequest):
         },
     )
 
-# TO DO
 @app.post("/api/speak")
-async def text_to_speech(text: str, tts_model: str = "openai-tts"):
+async def text_to_speech(request: SpeakRequest):
 
     t_start = time.time()
 
-    # placeholder: return a valid but silent WAV file (44 bytes — just the header)
-    silent_wav = bytes([
-        0x52, 0x49, 0x46, 0x46,  # "RIFF"
-        0x24, 0x00, 0x00, 0x00,  # chunk size
-        0x57, 0x41, 0x56, 0x45,  # "WAVE"
-        0x66, 0x6D, 0x74, 0x20,  # "fmt "
-        0x10, 0x00, 0x00, 0x00,  # subchunk1 size
-        0x01, 0x00,              # PCM format
-        0x01, 0x00,              # mono
-        0x44, 0xAC, 0x00, 0x00,  # 44100 Hz sample rate
-        0x88, 0x58, 0x01, 0x00,  # byte rate
-        0x02, 0x00,              # block align
-        0x10, 0x00,              # bits per sample
-        0x64, 0x61, 0x74, 0x61,  # "data"
-        0x00, 0x00, 0x00, 0x00,  # data size = 0 (silent)
-    ])
+    # guard against empty text
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="No text provided.")
+    
+    # call TTS module
+    try:
+        tts_start = time.time()
+        audio_bytes = synthesize(request.text)
+        tts_latency = int((time.time() - tts_start) * 1000)
+    except Exception as e:
+        print("\n=== TTS ERROR ===")
+        traceback.print_exc()
+        print("===================\n")
+        raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+    
+    total_latency = int((time.time() - t_start) * 1000)
 
-    latency_ms = int((time.time() - t_start) * 1000)
-
-    # placeholder
-    return StreamingResponse(io.BytesIO(silent_wav), media_type="audio/wav", headers={"X-Latency-Ms": str(latency_ms), "X-TTS-Model":  tts_model,})
+    # stream audio bytes back to the browser
+    return StreamingResponse(
+        io.BytesIO(audio_bytes),
+        media_type="audio/wav",
+        headers={
+            "X-TTS-Latency-Ms": str(tts_latency),
+            "X-Total-Latency-Ms": str(total_latency),
+        },
+    )
 
 @app.get("/api/health")
 async def health_check():

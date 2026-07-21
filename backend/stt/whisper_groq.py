@@ -35,12 +35,12 @@ def get_client() -> Groq:
 
 # Takes raw audio bytes (wav, mp3, m4a, ogg, flac)
 # and returns the transcribed text
-def transcribe(audio_bytes: bytes, filename: str = "audio.wav") -> str:
+def transcribe(audio_bytes: bytes, filename: str = "audio.wav", model: str = MODEL) -> str:
     client = get_client()
 
     response = client.audio.transcriptions.create(
         file = (filename, audio_bytes),
-        model = MODEL,
+        model = model,
         language = LANGUAGE,
         response_format = "json",
     )

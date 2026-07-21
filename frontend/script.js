@@ -58,7 +58,7 @@ function setState(newState, message = '') {
 let config = {
     stt: 'whisper-groq',
     llm: 'llama-groq',
-    tts: 'openai-tts',
+    tts: 'orpheus',
 };
 
 const NUM_QUESTIONS = 5;
@@ -331,6 +331,7 @@ async function processRecording(audioBlob, mimeType) {
         currentQuestion = evalData.next_question;
         currentQuestionIndex++;
 
+        setTranscript('');
         setState(STATES.SPEAKING, currentQuestion);
         try {
             await speakText(currentQuestion);
@@ -341,7 +342,6 @@ async function processRecording(audioBlob, mimeType) {
         if (!isRunning) return;
 
         setState(STATES.LISTENING, currentQuestion);
-        setTranscript('');
 
     } catch (err) {
         logDebug('error', 'pipeline failed: ' + err.message);
@@ -436,7 +436,7 @@ function logDebug(type, message) {
     const ts = new Date().toLocaleTimeString('en', {
         hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
     });
-    logEntries.unshift({ ts, type, message });
+    logEntries.unshift({ ts, type, message, stt: config.stt, llm: config.llm, tts: config.tts });
 
     const box = document.getElementById('log-box');
 
@@ -470,9 +470,9 @@ function exportLog() {
 
     const header = 'time,type,message,stt,llm,tts';
     const rows = logEntries.map(e =>
-        [e.ts, e.type, e.message, config.stt, config.llm, config.tts].map(csvField).join(',')
+        [e.ts, e.type, e.message, e.stt, e.llm, e.tts].map(csvField).join(',')
     );
-    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+    const blob = new Blob(['\uFEFF' + [header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'quiz_log.csv';

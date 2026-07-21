@@ -38,7 +38,7 @@ async def no_cache_static(request, call_next):
 class ModelConfig(BaseModel):
     stt: str = "whisper-groq"
     llm: str = "llama-groq"
-    tts: str = "openai-tts"
+    tts: str = "orpheus"
 
 class AnswerRequest(BaseModel):
     transcript: str               # what the user said (from STT)
@@ -63,6 +63,30 @@ class QuizResponse(BaseModel):
     quiz_done: bool = False       # True when all questions are finished
     latency_ms: dict = {}         # timing data for the debug panel
 
+# MODEL REGISTRY
+LLM_MODELS = {
+    "llama-groq": "llama-3.3-70b-versatile",
+    "llama-8b-groq": "llama-3.1-8b-instant",
+}
+
+STT_MODELS = {
+    "whisper-groq": "whisper-large-v3-turbo",
+    "whisper-groq-large": "whisper-large-v3",
+}
+
+TTS_MODELS = {
+    "orpheus": {"model": "canopylabs/orpheus-v1-english", "voice": "troy"},
+}
+
+def resolve_model(registry: dict, model_id: str, component: str) -> str | dict:
+    if model_id not in registry:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown {component} model: '{model_id}'. "
+                   f"Available: {list(registry.keys())}"
+        )
+    return registry[model_id]
+
 # in-memory quiz state
 current_session = {}   # session_id → quiz state dict
 
@@ -76,6 +100,8 @@ async def start_quiz(request: StartRequest):
     global current_session
     t_start = time.time()
 
+    llm_model = resolve_model(LLM_MODELS, request.config.llm, "LLM")
+
     # generate first question with LLM
     try:
         t_llm_start = time.time()
@@ -83,6 +109,7 @@ async def start_quiz(request: StartRequest):
             topic=request.topic,
             question_number=1,
             previous_questions=[],
+            model=llm_model,
         )
         llm_latency_ms = int((time.time() - t_llm_start) * 1000)
     except Exception as e:
@@ -134,19 +161,21 @@ async def transcribe_audio(audio: UploadFile = File(...), stt_model: str = "whis
     
     filename = audio.filename or "audio.wav"    # so whisper can detect the format from the extension
 
-    # Call SST module
-    # sst_model param is still only info
+    stt_model_name = resolve_model(STT_MODELS, stt_model, "STT")
+
+    # Call STT module
+    # stt_model param is still only info
     try:
-        t_sst_start = time.time()
-        transcript = transcribe(audio_bytes, filename=filename)
-        sst_latency_ms = int((time.time() - t_sst_start) * 1000)
+        t_stt_start = time.time()
+        transcript = transcribe(audio_bytes, filename=filename, model=stt_model_name)
+        stt_latency_ms = int((time.time() - t_stt_start) * 1000)
     except Exception as e:
-        print("\n=== SST ERROR ===")
+        print("\n=== STT ERROR ===")
         traceback.print_exc()
         print("====================\n")
         raise HTTPException(
             status_code=500,
-            detail=f"SST failed: {str(e)}"
+            detail=f"STT failed: {str(e)}"
         )
 
     total_latency_ms = int((time.time() - t_start) * 1000)
@@ -157,7 +186,7 @@ async def transcribe_audio(audio: UploadFile = File(...), stt_model: str = "whis
         "stt_model": stt_model,
         "file_size_kb": file_size_kb,
         "latency_ms": {
-            "sst": sst_latency_ms,
+            "stt": stt_latency_ms,
             "total": total_latency_ms,
         },
     }
@@ -174,10 +203,12 @@ async def evaluate_answer_endpoint(request: AnswerRequest):
             detail="No active quiz session."
         )
 
+    llm_model = resolve_model(LLM_MODELS, request.config.llm, "LLM")
+
     # evaluate user's answer
     try:
         t_llm_start = time.time()
-        is_correct, llm_feedback = evaluate_answer(request.question, request.transcript)
+        is_correct, llm_feedback = evaluate_answer(request.question, request.transcript, model=llm_model)
         eval_latency_ms = int((time.time() - t_llm_start) * 1000)
     except Exception as e:
         import traceback
@@ -204,6 +235,7 @@ async def evaluate_answer_endpoint(request: AnswerRequest):
                 topic = current_session["topic"],
                 question_number = current_session["current_index"] + 1,
                 previous_questions = current_session["previous_questions"],
+                model=llm_model,
             )
             gen_latency_ms = int((time.time() - t_gen_start) * 1000)
             current_session["previous_questions"].append(next_question)
@@ -246,10 +278,12 @@ async def text_to_speech(request: SpeakRequest):
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="No text provided.")
     
+    tts_config = resolve_model(TTS_MODELS, request.tts_model, "TTS")
+
     # call TTS module
     try:
         tts_start = time.time()
-        audio_bytes = synthesize(request.text)
+        audio_bytes = synthesize(request.text, voice=tts_config["voice"], model=tts_config["model"])
         tts_latency = int((time.time() - tts_start) * 1000)
     except Exception as e:
         print("\n=== TTS ERROR ===")
@@ -282,18 +316,14 @@ async def health_check():
 async def list_models():
     return {
         "stt": [
-            {"id": "whisper-openai", "name": "Whisper (OpenAI)", "provider": "OpenAI"},
-            {"id": "whisper-groq",   "name": "Whisper (Groq)",   "provider": "Groq"},
-            {"id": "deepgram",       "name": "Deepgram Nova-2",  "provider": "Deepgram"},
+            {"id": "whisper-groq", "name": "Whisper Large V3 Turbo", "provider": "Groq"},
+            {"id": "whisper-groq-large", "name": "Whisper Large V3", "provider": "Groq"},
         ],
         "llm": [
-            {"id": "gpt4o-mini",    "name": "GPT-4o mini",      "provider": "OpenAI"},
-            {"id": "claude-sonnet", "name": "Claude Sonnet",     "provider": "Anthropic"},
-            {"id": "llama-groq",    "name": "Llama 3.3 (Groq)", "provider": "Groq"},
+            {"id": "llama-groq", "name": "LLama 3.3 70B", "provider": "Groq"},
+            {"id": "llama-8b-groq", "name": "Llama 3.1 8B", "provider": "Groq"},
         ],
         "tts": [
-            {"id": "openai-tts",  "name": "OpenAI TTS-1",   "provider": "OpenAI"},
-            {"id": "elevenlabs",  "name": "ElevenLabs",      "provider": "ElevenLabs"},
-            {"id": "kokoro",      "name": "Kokoro (local)",  "provider": "Local"},
+            {"id": "orpheus", "name": "Orpheus (English)", "provider": "Groq"},
         ],
     }

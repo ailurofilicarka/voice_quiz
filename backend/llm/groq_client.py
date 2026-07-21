@@ -33,7 +33,7 @@ def get_client() -> Groq:
 
 # Asks the LLM to come up with one quiz question.
 # Returns just the question text.
-def generate_question(topic: str, question_number: int, previous_questions: list[str]) -> str:
+def generate_question(topic: str, question_number: int, previous_questions: list[str], model: str = MODEL) -> str:
 
     # Build a string listing previous questions so the LLM avoids repeating them
     if previous_questions:
@@ -43,7 +43,7 @@ def generate_question(topic: str, question_number: int, previous_questions: list
         avoid_text = ""
 
     response = get_client().chat.completions.create(
-        model=MODEL,
+        model=model,
 
         messages=[
             {
@@ -81,10 +81,10 @@ def generate_question(topic: str, question_number: int, previous_questions: list
 
 
 # Asks LLM to judge whether the answer is correct
-def evaluate_answer(question: str, user_answer: str) -> tuple[bool, str]:
+def evaluate_answer(question: str, user_answer: str, model: str = MODEL) -> tuple[bool, str]:
 
     response = get_client().chat.completions.create(
-        model=MODEL,
+        model=model,
 
         messages=[
             {

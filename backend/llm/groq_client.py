@@ -10,25 +10,22 @@ from groq import Groq
 load_dotenv()
 
 # Default configuration
-MODEL = "llama-3.3-70b-versatile"    # LLM
+MODEL = "llama-3.3-70b-versatile"
 NUM_QUESTIONS = 5                    # default number of questions
 
-TEST_DATASET_PATH = "archive/quiz_questions.csv"
-TEST_RESULTS_PATH = "results/test_results.csv"
+TEST_DATASET_PATH = "../../archive/quiz_questions.csv"
+TEST_RESULTS_PATH = "../../results/test_results.csv"
 
 # Client initialization
 client = None       # will be created on first use
 
 def get_client() -> Groq:
-    
     global client
-    
     if client is None:
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise RuntimeError("GROQ_API_KEY not found in your .env file.")
         client = Groq(api_key=api_key)
-
     return client
 
 # Asks the LLM to come up with one quiz question.
@@ -127,16 +124,14 @@ def evaluate_answer(question: str, user_answer: str, model: str = MODEL) -> tupl
 
     return is_correct, llm_response
 
-# Terminal quiz mode
-# runs only when u do: py grok_client.py
-# main quiz loop
+# Terminal quiz mode: py grok_client.py
 def run_quiz():
 
     print("\n" + "=" * 50)
     print("LLM: Groq /", MODEL)
     print("=" * 50)
 
-    topic = input("\nEnter a topic (or press Enter for 'general knowledge': )").strip() \
+    topic = input("\nEnter a topic (or press Enter for 'general knowledge'):").strip() \
             or "general knowledge"
 
     num_input = input(f"How many questions? (press Enter for {NUM_QUESTIONS}): ").strip()
@@ -148,36 +143,29 @@ def run_quiz():
     print(f"\nStarting quiz: {num_questions} questions about '{topic}'")
     print("-" * 50)
 
-    # quiz loop
     correct_count = 0
     previous_questions = []
 
     for i in range(1, num_questions + 1):
 
-        # Generate question
         print(f"\nGenerating question {i} of {num_questions}...")
         question = generate_question(topic, i, previous_questions)
         previous_questions.append(question)
         print(f"\nQuestion {i}: {question}")
 
-        # Wait for answer
         user_answer = input("Your answer: ").strip()
 
-        # Handle empty answer
         if not user_answer:
             print("(no answer given — marked as wrong)")
             print("-" * 50)
             continue
 
-        # Evaluate answer
         print("Evaluating...")
         is_correct, explanation = evaluate_answer(question, user_answer)
 
         if is_correct:
             correct_count += 1
-            print(f"CORRECT {explanation}")
-        else:
-            print(f"WRONG {explanation}")
+        print(f"{explanation}")
 
         print("-" * 50)
 
@@ -188,14 +176,6 @@ def run_quiz():
 
     percentage = round((correct_count / num_questions) * 100)
     print(f"Percentage: {percentage}%")
-
-    if percentage == 100:
-        print("  Perfect score! Excellent work.")
-    elif percentage >= 60:
-        print("  Good job!")
-    else:
-        print("  Better luck next time!")
-
     print(f"{'=' * 50}\n")
 
 # Gives the question to the LLM and asks it to answer it
@@ -314,7 +294,6 @@ def run_dataset_test(csv_path = TEST_DATASET_PATH, num_questions = 50, difficult
     print(f"  Avg. latency: {avg_latency:.0f}ms")
     print("=" * 50)
 
-    # Save TSV
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=results[0].keys())
         writer.writeheader()

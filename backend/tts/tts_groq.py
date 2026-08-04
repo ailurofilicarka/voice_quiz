@@ -1,6 +1,10 @@
 import os
 import sys
 import time
+import io
+import warnings
+import numpy as np
+from scipy.io import wavfile
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -26,12 +30,32 @@ def get_client() -> Groq:
 
     return client
 
+# Check if the WAV contains no audio at all (every sample zero)
+def is_silent(wav_bytes: bytes) -> bool:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, audio = wavfile.read(io.BytesIO(wav_bytes))
+    return int(np.max(np.abs(audio))) == 0
+
 # Core function - takes text, returns audio bytes
-def synthesize(text: str, voice: str = VOICE, model: str = MODEL) -> bytes:
-    client = get_client()
-    response = client.audio.speech.create(model=model, voice=voice, input=text, response_format=RESPONSE_FORMAT)
-    raw_byes = response.read()
-    return fix_wav_header(raw_byes)
+def synthesize(text: str, voice: str = VOICE, model: str = MODEL, max_attempts: int = 3) -> bytes:
+    # client = get_client()
+    # response = client.audio.speech.create(model=model, voice=voice, input=text, response_format=RESPONSE_FORMAT)
+    # raw_byes = response.read()
+    # return fix_wav_header(raw_byes)
+
+    for attempt in range(1, max_attempts + 1):
+        response = get_client().audio.speech.create(model=model, voice=voice, input=text, response_format=RESPONSE_FORMAT)
+        wav_bytes = fix_wav_header(response.read())
+
+        if not is_silent(wav_bytes):
+            if attempt > 1:
+                print(f"[tts] recovered on attempt {attempt}")
+            return wav_bytes
+
+        print(f"[tts] attempt {attempt}/{max_attempts}: silent audio returned, retrying")
+
+    raise RuntimeError(f"TTS returned silent audio {max_attempts} times in a row for: {text[:60]!r}")
 
 def fix_wav_header(wav_bytes: bytes) -> bytes:
     import io

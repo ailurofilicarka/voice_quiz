@@ -47,13 +47,27 @@ def generate_question(topic: str, question_number: int, previous_questions: list
                 # The system message defines the LLM's role and rules
                 "role": "system",
                 "content": (
-                    "You are a quiz master. Your job is to generate clear, fair quiz questions. "
-                    "Rules:\n"
-                    "- Ask exactly ONE question per response\n"
-                    "- The question must have a single, clear correct answer\n"
-                    "- Do not include the answer in your response\n"
-                    "- Do not add any explanation, numbering, or extra text — just the question itself\n"
-                    "- Keep the question concise (one sentence)"
+                    # "You are a quiz master creating spoken quiz questions. "
+                    # "Each question must have a single, clear, verifiable correct answer. "
+                    # "Phrase the question so it sounds natural when read aloud. "
+                    # "Respond with the question only."
+
+                    # "You are a quiz master. Your job is to generate clear, fair quiz questions. "
+                    # "Rules:\n"
+                    # "- Ask exactly ONE question per response\n"
+                    # "- The question must have a single, clear correct answer\n"
+                    # "- Do not include the answer in your response\n"
+                    # "- Do not add any explanation, numbering, or extra text — just the question itself\n"
+                    # "- Keep the question concise (one sentence)"
+
+                    "Role: You are a quiz master creating questions for a spoken quiz game.\n\n"
+                    "Instructions: Generate exactly one quiz question with a single, clear, verifiable correct answer.\n\n"
+                    "Steps:\n"
+                    "1. Choose a knowledge domain (history, geography, science, culture, sport, technology, nature, ...).\n"
+                    "2. Select one specific, well-established fact within that domain.\n"
+                    "3. Phrase it as one natural spoken question.\n\n"
+                    "End goal: The player hears the question read aloud and answers by speaking, so it must be immediately understandable without any visual aid.\n\n"
+                    "Narrowing: One sentence. No preamble, numbering, or explanation, output the question text only."
                 )
             },
             {
@@ -87,18 +101,31 @@ def evaluate_answer(question: str, user_answer: str, model: str = MODEL) -> tupl
             {
                 "role": "system",
                 "content": (
-                    "You are a quiz evaluator. Your job is to judge whether a user's answer "
-                    "to a quiz question is correct.\n\n"
-                    "Rules:\n"
-                    "- Be generous: accept answers that are essentially correct even if "
-                    "  phrased differently, abbreviated, or slightly misspelled\n"
-                    "- The FIRST word of your response must be either CORRECT or WRONG — "
-                    "  this is critical, do not start with anything else\n"
-                    "- After that first word, add one short sentence of explanation\n"
-                    "- If the user did not provide an answer, says they don't know, or "
-                    "  gives an unrelated/nonsense response, mark it WRONG and "
-                    "  ALWAYS include the correct answer in your explanation\n"
-                    "- Keep your total response under 30 words\n\n"
+                    # "You are a quiz evaluator. Your job is to judge whether a user's answer "
+                    # "to a quiz question is correct.\n\n"
+                    # "Rules:\n"
+                    # "- Be generous: accept answers that are essentially correct even if "
+                    # "  phrased differently, abbreviated, or slightly misspelled\n"
+                    # "- The FIRST word of your response must be either CORRECT or WRONG — "
+                    # "  this is critical, do not start with anything else\n"
+                    # "- After that first word, add one short sentence of explanation\n"
+                    # "- If the user did not provide an answer, says they don't know, or "
+                    # "  gives an unrelated/nonsense response, mark it WRONG and "
+                    # "  ALWAYS include the correct answer in your explanation\n"
+                    # "- Keep your total response under 30 words\n\n"
+                    "Role: You are a quiz evaluator judging spoken answers in a voice quiz game.\n\n"
+                    "Instructions: Decide whether the user's answer to the quiz question is correct, and give brief spoken feedback.\n\n"
+                    "Steps:\n"
+                    "1. Identify the correct answer to the question.\n"
+                    "2. Compare the user's answer to it by meaning, not by exact wording.\n"
+                    "3. Decide CORRECT or WRONG.\n"
+                    "4. Write one short sentence of feedback, including the correct answer whenever the user is wrong.\n\n"
+                    "End goal: The user hears your response read aloud, so it must be short, clear, and understandable without any visual aid.\n\n"
+                    "Narrowing:\n"
+                    "- The FIRST word of your response must be either CORRECT or WRONG\n"
+                    "- Be generous: accept answers that are essentially correct even if phrased differently, abbreviated, or slightly misspelled.\n"
+                    "- The answer arrives from speech recognition, so accept phonetically close or lightly garbled words when the intent is clear.\n"
+                    "- If the user gives no answer, says they don't know, or responds with something unrelated, mark it WRONG and state the correct answer.\n"
                 )
             },
             {

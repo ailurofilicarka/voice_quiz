@@ -78,11 +78,47 @@ let audioStream = null;      // raw mic stram from the browser
 // AUDIO PLAYBACK STATE
 let currentAudio = null;    // the audio object currently playing
 
+// async function speakText(text) {
+//     const response = await fetch('/api/speak', {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({text: text, tts_model: config.tts}),
+//     });
+
+//     if (!response.ok) {
+//         throw new Error(`TTS failed (HTTP ${response.status})`);
+//     }
+
+//     const ttsLatency = parseInt(response.headers.get('X-TTS-Latency-Ms') || '0', 10);
+
+//     // read the response body as a blob (binary audio data)
+//     const audioBlob = await response.blob();
+
+//     // temporary URL that points at the blob in memory
+//     const audioUrl = URL.createObjectURL(audioBlob);
+
+//     // play the audio and wait until it finishes
+//     await new Promise((reslove, reject) => {
+//         currentAudio = new Audio(audioUrl);
+//         currentAudio.onended = () => reslove();
+//         currentAudio.onerror = () => reject(new Error('Audio playback failed'));
+//         currentAudio.play().catch(reject);
+//     });
+
+//     // clean up
+//     URL.revokeObjectURL(audioUrl);
+//     currentAudio = null;
+
+//     return ttsLatency;
+// }
+
 async function speakText(text) {
+    logDebug('info', `TTS input: "${text}"`);
+
     const response = await fetch('/api/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({text: text, tts_model: config.tts}),
+        body: JSON.stringify({ text: text, tts_model: config.tts }),
     });
 
     if (!response.ok) {
@@ -93,16 +129,40 @@ async function speakText(text) {
 
     // read the response body as a blob (binary audio data)
     const audioBlob = await response.blob();
+    logDebug('info', `TTS blob: ${audioBlob.size} bytes`);
 
     // temporary URL that points at the blob in memory
     const audioUrl = URL.createObjectURL(audioBlob);
 
-    // play the audio and wait until it finishes
-    await new Promise((reslove, reject) => {
+    // // play the audio and wait until it finishes
+    // await new Promise((resolve, reject) => {
+    //     currentAudio = new Audio(audioUrl);
+    //     currentAudio.onloadedmetadata = () =>
+    //         logDebug('info', `TTS duration: ${currentAudio.duration}s`);
+    //     currentAudio.onended = () => resolve();
+    //     currentAudio.onerror = () => reject(new Error('Audio playback failed'));
+    //     currentAudio.play().catch(reject);
+    // });
+
+    await new Promise((resolve, reject) => {
         currentAudio = new Audio(audioUrl);
-        currentAudio.onended = () => reslove();
+        const tStart = performance.now();
+
+        currentAudio.onloadedmetadata = () =>
+            logDebug('info', `TTS duration: ${currentAudio.duration}s`);
+
+        currentAudio.onplay = () => logDebug('info', 'TTS playback started');
+
+        currentAudio.onended = () => {
+            const elapsed = ((performance.now() - tStart) / 1000).toFixed(2);
+            logDebug('info', `TTS ended after ${elapsed}s (played ${currentAudio.currentTime.toFixed(2)}s)`);
+            resolve();
+        };
+
         currentAudio.onerror = () => reject(new Error('Audio playback failed'));
-        currentAudio.play().catch(reject);
+
+        // wait until enough is buffered before starting playback
+        currentAudio.oncanplaythrough = () => currentAudio.play().catch(reject);
     });
 
     // clean up

@@ -68,6 +68,8 @@ LLM_MODELS = {
     "llama-groq": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
     # "llama-8b-groq": "llama-3.1-8b-instant",
     "qwen-openrouter": {"provider": "openrouter", "model": "qwen/qwen3.6-27b"},
+    "mistral-openrouter": {"provider": "openrouter", "model": "mistralai/mistral-medium-3-5"},
+    "gpt-openrouter":  {"provider": "openrouter", "model": "openai/gpt-5.4-mini"},
 }
 
 LLM_CLIENTS = {
@@ -316,6 +318,19 @@ async def text_to_speech(request: SpeakRequest):
         tts_start = time.time()
         audio_bytes = synthesize(request.text, voice=tts_config["voice"], model=tts_config["model"])
         tts_latency = int((time.time() - tts_start) * 1000)
+
+
+        # TEMPORARY DEBUG: save every TTS output so we can listen to it later
+        import re
+        import os
+        from datetime import datetime
+        os.makedirs("../results/tts_debug", exist_ok=True)
+        stamp = datetime.now().strftime("%H%M%S")
+        slug = re.sub(r"[^a-zA-Z0-9]+", "_", request.text[:40]).strip("_")
+        with open(f"../results/tts_debug/{stamp}_{slug}.wav", "wb") as f:
+            f.write(audio_bytes)
+
+
     except Exception as e:
         print("\n=== TTS ERROR ===")
         traceback.print_exc()
@@ -354,6 +369,8 @@ async def list_models():
             {"id": "llama-groq", "name": "LLama 3.3 70B", "provider": "Groq"},
             # {"id": "llama-8b-groq", "name": "Llama 3.1 8B", "provider": "Groq"},
             {"id": "qwen-openrouter", "name": "Qwen 3.6 27B", "provider": "OpenRouter"},
+            {"id": "mistral-openrouter", "name": "Mistral Medium 3.5", "provider": "OpenRouter"},
+            {"id": "gpt-openrouter", "name": "GPT-5.4 Mini", "provider": "OpenRouter"},
         ],
         "tts": [
             {"id": "orpheus", "name": "Orpheus (English)", "provider": "Groq"},

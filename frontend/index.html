@@ -80,6 +80,13 @@
                             <select id="sel-stt" onchange="updateConfig()">
                             <option value="whisper-groq">Whisper V3 Turbo (Groq)</option>
                             <option value="whisper-groq-large">Whisper V3 (Groq)</option>
+                            <option value="whisper-or">Whisper v1 (OpenRouter)</option>
+                            <option value="gpt4o-transcribe">GPT-4o Mini Transcribe (OR)</option>
+                            <option value="nova-3">Deepgram Nova-3 (OR)</option>
+                            <option value="parakeet">NVIDIA Parakeet (OR)</option>
+                            <option value="voxtral-stt">Voxtral Transcribe (OR)</option>
+                            <option value="qwen-asr">Qwen3 ASR Flash (OR)</option>
+                            <option value="chirp-3">Google Chirp 3 (OR)</option>
                             </select>
                         </div>
                         <div class="model-selector">
@@ -96,6 +103,10 @@
                             <label>TTS model</label>
                             <select id="sel-tts" onchange="updateConfig()">
                             <option value="orpheus">Orpheus (Groq)</option>
+                            <option value="kokoro">Kokoro 82M (OpenRouter)</option>
+                            <option value="gemini-tts">Gemini 3.1 Flash (OpenRouter)</option>
+                            <option value="qwen-tts">Qwen Audio 3.0 (OpenRouter)</option>
+                            <option value="deepgram-aura">Deepgram Aura-2 (OpenRouter)</option>
                             </select>
                         </div>
                     </div>

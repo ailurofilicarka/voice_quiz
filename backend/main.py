@@ -7,10 +7,11 @@ from pathlib import Path
 import time
 import io
 import traceback
+import wave
 
 from llm import groq_client, openrouter_client
-from stt.whisper_groq import transcribe
-from tts.tts_groq import synthesize
+from tts import tts_groq, tts_openrouter
+from stt import whisper_groq, stt_openrouter
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -83,13 +84,36 @@ LLM_TIMEOUT_S = {
 }
 
 STT_MODELS = {
-    "whisper-groq": "whisper-large-v3-turbo",
-    "whisper-groq-large": "whisper-large-v3",
+    "whisper-groq": {"provider": "groq", "model": "whisper-large-v3-turbo", "language": "en"},
+    "whisper-groq-large": {"provider": "groq", "model": "whisper-large-v3", "language": "en"},
+    "whisper-or": {"provider": "openrouter", "model": "openai/whisper-1", "language": "en"},
+    "gpt4o-transcribe": {"provider": "openrouter", "model": "openai/gpt-4o-mini-transcribe", "language": "en"},
+    "nova-3": {"provider": "openrouter", "model": "deepgram/nova-3", "language": "en"},
+    "parakeet": {"provider": "openrouter", "model": "nvidia/parakeet-tdt-0.6b-v3", "language": "en"},
+    "voxtral-stt": {"provider": "openrouter", "model": "mistralai/voxtral-mini-transcribe", "language": "en"},
+    "qwen-asr": {"provider": "openrouter", "model": "qwen/qwen3-asr-flash-2026-02-10", "language": "en"},
+    "chirp-3": {"provider": "openrouter", "model": "google/chirp-3", "language": "en"},
+}
+
+STT_CLIENTS = {
+    "groq": whisper_groq,
+    "openrouter": stt_openrouter,
 }
 
 TTS_MODELS = {
-    "orpheus": {"model": "canopylabs/orpheus-v1-english", "voice": "troy"},
+    "orpheus": {"provider": "groq", "model": "canopylabs/orpheus-v1-english", "voice": "troy", "format": "wav"},
+    "kokoro": {"provider": "openrouter", "model": "hexgrad/kokoro-82m", "voice": "af_bella", "format": "pcm"},
+    "gemini-tts": {"provider": "openrouter", "model": "google/gemini-3.1-flash-tts-preview", "voice": "Charon", "format": "pcm"},
+    "qwen-tts": {"provider": "openrouter", "model": "qwen/qwen-audio-3.0-tts-flash", "voice": "loongjohn", "format": "mp3"},
+    "deepgram-aura": {"provider": "openrouter", "model": "deepgram/aura-2", "voice": "aura-2-thalia-en", "format": "pcm"},
 }
+
+TTS_CLIENTS = {
+    "groq": tts_groq,
+    "openrouter": tts_openrouter,
+}
+
+PCM_SAMPLE_RATE = 24000
 
 def resolve_model(registry: dict, model_id: str, component: str) -> str | dict:
     if model_id not in registry:
@@ -135,6 +159,46 @@ def call_evaluate_answer(client_module, model_name: str, question: str, transcri
         return is_correct, explanation, client_latency_ms
     is_correct, explanation = result
     return is_correct, explanation, (time.time() - t0) * 1000
+
+# pcm is only format some models support
+def pcm_to_wav(pcm_bytes: bytes, sample_rate: int, channels: int = 1, sample_width: int = 2) -> bytes:
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(sample_width)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm_bytes)
+    buffer.seek(0)
+    return buffer.read()
+
+# call the right TTS provider
+def call_synthesize(cfg: dict, text: str) -> tuple[bytes, str]:
+
+    client_module = TTS_CLIENTS[cfg["provider"]]
+    fmt = cfg.get("format", "wav")
+
+    if cfg["provider"] == "openrouter":
+        audio_bytes, sample_rate = client_module.synthesize(text, voice=cfg["voice"], model=cfg["model"], response_format=fmt)
+    else:
+        audio_bytes = client_module.synthesize(text, voice=cfg["voice"], model=cfg["model"])
+        sample_rate = 0
+
+    if fmt == "pcm":
+        audio_bytes = pcm_to_wav(audio_bytes, sample_rate or PCM_SAMPLE_RATE)
+        return audio_bytes, "audio/wav"
+    if fmt == "mp3":
+        return audio_bytes, "audio/mpeg"
+    return audio_bytes, "audio/wav"
+
+# call the right STT provider
+def call_transcribe(cfg: dict, audio_bytes: bytes, filename: str) -> str:
+    client_module = STT_CLIENTS[cfg["provider"]]
+
+    if cfg["provider"] == "openrouter":
+        return client_module.transcribe(audio_bytes, filename=filename, model=cfg["model"], language=cfg.get("language"))
+    return client_module.transcribe(audio_bytes, filename=filename, model=cfg["model"])
+
 
 # SESSION STATE
 
@@ -211,7 +275,7 @@ async def transcribe_audio(audio: UploadFile = File(...), stt_model: str = "whis
     # stt_model param is still only info
     try:
         t_stt_start = time.time()
-        transcript = transcribe(audio_bytes, filename=filename, model=stt_model_name)
+        transcript = call_transcribe(stt_model_name, audio_bytes, filename)
         stt_latency_ms = int((time.time() - t_stt_start) * 1000)
     except Exception as e:
         print("\n=== STT ERROR ===")
@@ -316,20 +380,18 @@ async def text_to_speech(request: SpeakRequest):
     # call TTS module
     try:
         tts_start = time.time()
-        audio_bytes = synthesize(request.text, voice=tts_config["voice"], model=tts_config["model"])
+        audio_bytes, media_type = call_synthesize(tts_config, request.text)
         tts_latency = int((time.time() - tts_start) * 1000)
 
-
-        # TEMPORARY DEBUG: save every TTS output so we can listen to it later
-        import re
-        import os
-        from datetime import datetime
-        os.makedirs("../results/tts_debug", exist_ok=True)
-        stamp = datetime.now().strftime("%H%M%S")
-        slug = re.sub(r"[^a-zA-Z0-9]+", "_", request.text[:40]).strip("_")
-        with open(f"../results/tts_debug/{stamp}_{slug}.wav", "wb") as f:
-            f.write(audio_bytes)
-
+        # # TEMPORARY DEBUG: save every TTS output
+        # import re
+        # import os
+        # from datetime import datetime
+        # os.makedirs("../results/tts_debug", exist_ok=True)
+        # stamp = datetime.now().strftime("%H%M%S")
+        # slug = re.sub(r"[^a-zA-Z0-9]+", "_", request.text[:40]).strip("_")
+        # with open(f"../results/tts_debug/{stamp}_{slug}.wav", "wb") as f:
+        #     f.write(audio_bytes)
 
     except Exception as e:
         print("\n=== TTS ERROR ===")
@@ -342,7 +404,7 @@ async def text_to_speech(request: SpeakRequest):
     # stream audio bytes back to the browser
     return StreamingResponse(
         io.BytesIO(audio_bytes),
-        media_type="audio/wav",
+        media_type=media_type,
         headers={
             "X-TTS-Latency-Ms": str(tts_latency),
             "X-Total-Latency-Ms": str(total_latency),
@@ -364,6 +426,13 @@ async def list_models():
         "stt": [
             {"id": "whisper-groq", "name": "Whisper Large V3 Turbo", "provider": "Groq"},
             {"id": "whisper-groq-large", "name": "Whisper Large V3", "provider": "Groq"},
+            {"id": "whisper-or", "name": "Whisper v1", "provider": "OpenRouter"},
+            {"id": "gpt4o-transcribe", "name": "GPT-4o Mini Transcribe","provider": "OpenRouter"},
+            {"id": "nova-3", "name": "Deepgram Nova-3", "provider": "OpenRouter"},
+            {"id": "parakeet", "name": "NVIDIA Parakeet", "provider": "OpenRouter"},
+            {"id": "voxtral-stt", "name": "Voxtral Transcribe", "provider": "OpenRouter"},
+            {"id": "qwen-asr", "name": "Qwen3 ASR Flash", "provider": "OpenRouter"},
+            {"id": "chirp-3", "name": "Google Chirp 3", "provider": "OpenRouter"},
         ],
         "llm": [
             {"id": "llama-groq", "name": "LLama 3.3 70B", "provider": "Groq"},
@@ -374,5 +443,9 @@ async def list_models():
         ],
         "tts": [
             {"id": "orpheus", "name": "Orpheus (English)", "provider": "Groq"},
+            {"id": "kokoro", "name": "Kokoro 82M", "provider": "OpenRouter"},
+            {"id": "gemini-tts", "name": "Gemini 3.1 Flash TTS", "provider": "OpenRouter"},
+            {"id": "qwen-tts", "name": "Qwen Audio 3.0 TTS", "provider": "OpenRouter"},
+            {"id": "deepgram-aura", "name": "Deepgram Aura-2", "provider": "OpenRouter"},
         ],
     }

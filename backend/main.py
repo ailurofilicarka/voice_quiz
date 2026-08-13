@@ -54,6 +54,7 @@ class SpeakRequest(BaseModel):
 class StartRequest(BaseModel):
     topic: str = "general knowledge"
     num_questions: int = 5
+    personality: str = "classic"
     config: ModelConfig = ModelConfig()
 
 class QuizResponse(BaseModel):
@@ -86,13 +87,13 @@ LLM_TIMEOUT_S = {
 STT_MODELS = {
     "whisper-groq": {"provider": "groq", "model": "whisper-large-v3-turbo", "language": "en"},
     "whisper-groq-large": {"provider": "groq", "model": "whisper-large-v3", "language": "en"},
-    "whisper-or": {"provider": "openrouter", "model": "openai/whisper-1", "language": "en"},
+    # "whisper-or": {"provider": "openrouter", "model": "openai/whisper-1", "language": "en"},
     "gpt4o-transcribe": {"provider": "openrouter", "model": "openai/gpt-4o-mini-transcribe", "language": "en"},
     "nova-3": {"provider": "openrouter", "model": "deepgram/nova-3", "language": "en"},
     "parakeet": {"provider": "openrouter", "model": "nvidia/parakeet-tdt-0.6b-v3", "language": "en"},
     "voxtral-stt": {"provider": "openrouter", "model": "mistralai/voxtral-mini-transcribe", "language": "en"},
-    "qwen-asr": {"provider": "openrouter", "model": "qwen/qwen3-asr-flash-2026-02-10", "language": "en"},
-    "chirp-3": {"provider": "openrouter", "model": "google/chirp-3", "language": "en"},
+    # "qwen-asr": {"provider": "openrouter", "model": "qwen/qwen3-asr-flash-2026-02-10", "language": "en"},
+    # "chirp-3": {"provider": "openrouter", "model": "google/chirp-3", "language": "en"},
 }
 
 STT_CLIENTS = {
@@ -151,14 +152,16 @@ def call_generate_question(client_module, model_name: str,
     return result, (time.time() - t0) * 1000
  
  
-def call_evaluate_answer(client_module, model_name: str, question: str, transcript: str):
+def call_evaluate_answer(client_module, model_name: str, question: str, transcript: str,
+                         host: str, question_number: int, total_questions: int, score: int, streak: int):
     t0 = time.time()
-    result = client_module.evaluate_answer(question, transcript, model=model_name)
+    result = client_module.evaluate_answer(question, transcript, model=model_name, host=host,
+        question_number=question_number, total_questions=total_questions, score=score, streak=streak,)
     if len(result) == 4:
-        is_correct, explanation, _reasoning, client_latency_ms = result
-        return is_correct, explanation, client_latency_ms
-    is_correct, explanation = result
-    return is_correct, explanation, (time.time() - t0) * 1000
+        is_correct, speech, _reasoning, client_latency_ms = result
+        return is_correct, speech, client_latency_ms
+    is_correct, speech = result
+    return is_correct, speech, (time.time() - t0) * 1000
 
 # pcm is only format some models support
 def pcm_to_wav(pcm_bytes: bytes, sample_rate: int, channels: int = 1, sample_width: int = 2) -> bytes:
@@ -235,10 +238,12 @@ async def start_quiz(request: StartRequest):
     # initialize the session
     current_session = {
         "topic": request.topic,
+        "personality": request.personality,
         "num_questions": request.num_questions,
         "previous_questions": [first_question],
         "current_index": 0,
         "correct_count": 0,
+        "streak": 0,
         "config": request.config.model_dump(),
     }
 
@@ -314,6 +319,11 @@ async def evaluate_answer_endpoint(request: AnswerRequest):
             llm_model,
             question=request.question,
             transcript=request.transcript,
+            host=current_session.get("personality", "classic"),
+            question_number=current_session["current_index"] + 1,
+            total_questions=current_session["num_questions"],
+            score=current_session["correct_count"],
+            streak=current_session["streak"],
             )
     except Exception as e:
         print("\n=== LLM EVALUATION ERROR ===")
@@ -324,6 +334,9 @@ async def evaluate_answer_endpoint(request: AnswerRequest):
     current_session["current_index"] += 1
     if is_correct:
         current_session["correct_count"] += 1
+        current_session["streak"] += 1
+    else:
+        current_session["streak"] = 0
 
     quiz_done = current_session["current_index"] >= current_session["num_questions"]
 
@@ -426,13 +439,13 @@ async def list_models():
         "stt": [
             {"id": "whisper-groq", "name": "Whisper Large V3 Turbo", "provider": "Groq"},
             {"id": "whisper-groq-large", "name": "Whisper Large V3", "provider": "Groq"},
-            {"id": "whisper-or", "name": "Whisper v1", "provider": "OpenRouter"},
+            # {"id": "whisper-or", "name": "Whisper v1", "provider": "OpenRouter"},
             {"id": "gpt4o-transcribe", "name": "GPT-4o Mini Transcribe","provider": "OpenRouter"},
             {"id": "nova-3", "name": "Deepgram Nova-3", "provider": "OpenRouter"},
             {"id": "parakeet", "name": "NVIDIA Parakeet", "provider": "OpenRouter"},
             {"id": "voxtral-stt", "name": "Voxtral Transcribe", "provider": "OpenRouter"},
-            {"id": "qwen-asr", "name": "Qwen3 ASR Flash", "provider": "OpenRouter"},
-            {"id": "chirp-3", "name": "Google Chirp 3", "provider": "OpenRouter"},
+            # {"id": "qwen-asr", "name": "Qwen3 ASR Flash", "provider": "OpenRouter"},
+            # {"id": "chirp-3", "name": "Google Chirp 3", "provider": "OpenRouter"},
         ],
         "llm": [
             {"id": "llama-groq", "name": "LLama 3.3 70B", "provider": "Groq"},

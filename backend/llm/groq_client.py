@@ -6,6 +6,9 @@ import sys
 from dotenv import load_dotenv
 from groq import Groq
 
+from .hosts import build_evaluator_prompt, build_evaluator_user_message, DEFAULT_HOST
+from .json_parse import parse_evaluator_response
+
 # Load API key
 load_dotenv()
 
@@ -47,19 +50,6 @@ def generate_question(topic: str, question_number: int, previous_questions: list
                 # The system message defines the LLM's role and rules
                 "role": "system",
                 "content": (
-                    # "You are a quiz master creating spoken quiz questions. "
-                    # "Each question must have a single, clear, verifiable correct answer. "
-                    # "Phrase the question so it sounds natural when read aloud. "
-                    # "Respond with the question only."
-
-                    # "You are a quiz master. Your job is to generate clear, fair quiz questions. "
-                    # "Rules:\n"
-                    # "- Ask exactly ONE question per response\n"
-                    # "- The question must have a single, clear correct answer\n"
-                    # "- Do not include the answer in your response\n"
-                    # "- Do not add any explanation, numbering, or extra text — just the question itself\n"
-                    # "- Keep the question concise (one sentence)"
-
                     "Role: You are a quiz master creating questions for a spoken quiz game.\n\n"
                     "Instructions: Generate exactly one quiz question with a single, clear, verifiable correct answer.\n\n"
                     "Steps:\n"
@@ -92,64 +82,27 @@ def generate_question(topic: str, question_number: int, previous_questions: list
 
 
 # Asks LLM to judge whether the answer is correct
-def evaluate_answer(question: str, user_answer: str, model: str = MODEL) -> tuple[bool, str]:
+def evaluate_answer(question: str, user_answer: str, model: str = MODEL, host: str = DEFAULT_HOST,
+                    question_number: int = None, total_questions: int = None, score: int = None, streak: int = None) -> tuple[bool, str]:
 
     response = get_client().chat.completions.create(
         model=model,
-
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    # "You are a quiz evaluator. Your job is to judge whether a user's answer "
-                    # "to a quiz question is correct.\n\n"
-                    # "Rules:\n"
-                    # "- Be generous: accept answers that are essentially correct even if "
-                    # "  phrased differently, abbreviated, or slightly misspelled\n"
-                    # "- The FIRST word of your response must be either CORRECT or WRONG — "
-                    # "  this is critical, do not start with anything else\n"
-                    # "- After that first word, add one short sentence of explanation\n"
-                    # "- If the user did not provide an answer, says they don't know, or "
-                    # "  gives an unrelated/nonsense response, mark it WRONG and "
-                    # "  ALWAYS include the correct answer in your explanation\n"
-                    # "- Keep your total response under 30 words\n\n"
-                    "Role: You are a quiz evaluator judging spoken answers in a voice quiz game.\n\n"
-                    "Instructions: Decide whether the user's answer to the quiz question is correct, and give brief spoken feedback.\n\n"
-                    "Steps:\n"
-                    "1. Identify the correct answer to the question.\n"
-                    "2. Compare the user's answer to it by meaning, not by exact wording.\n"
-                    "3. Decide CORRECT or WRONG.\n"
-                    "4. Write one short sentence of feedback, including the correct answer whenever the user is wrong.\n\n"
-                    "End goal: The user hears your response read aloud, so it must be short, clear, and understandable without any visual aid.\n\n"
-                    "Narrowing:\n"
-                    "- The FIRST word of your response must be either CORRECT or WRONG\n"
-                    "- Be generous: accept answers that are essentially correct even if phrased differently, abbreviated, or slightly misspelled.\n"
-                    "- The answer arrives from speech recognition, so accept phonetically close or lightly garbled words when the intent is clear.\n"
-                    "- If the user gives no answer, says they don't know, or responds with something unrelated, mark it WRONG and state the correct answer.\n"
-                )
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Question: {question}\n"
-                    f"User's answer: {user_answer}\n\n"
-                    f"Is this answer correct?"
-                )
-            }
+            {"role": "system", "content": build_evaluator_prompt(host)},
+            {"role": "user", "content": build_evaluator_user_message(question, user_answer, question_number, total_questions, score, streak)},
         ],
 
         # temperature=0.0 for the consistent evaluation
         # LLM should always apply the same rules
-        temperature=0.0,
+        temperature=0.6,
 
         # short response needed
-        max_tokens=60,
+        max_tokens=500,
     )
 
-    llm_response = response.choices[0].message.content.strip()
-    is_correct = llm_response.upper().startswith("CORRECT")
+    llm_response_raw = response.choices[0].message.content
 
-    return is_correct, llm_response
+    return parse_evaluator_response(llm_response_raw)
 
 # Terminal quiz mode: py grok_client.py
 def run_quiz():

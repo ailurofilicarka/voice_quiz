@@ -9,48 +9,41 @@ const STATES = {
 
 let currentState = STATES.IDLE;
 
-// emoji icons for state
-const STATE_ICONS = {
-    idle: '🎤',
-    speaking: '🔊',
-    listening: '👂',
-    processing: '⏳',
-    error: '⚠️',
-};
-
 const STATE_LABELS = {
-    idle: 'Ready',
-    speaking: 'Speaking',
-    listening: 'Listening',
-    processing: 'Processing',
-    error: 'Error',
+    idle: 'ready',
+    speaking: 'speaking',
+    listening: 'listening',
+    processing: 'processing',
+    error: 'error',
 };
 
 // change currentState
-function setState(newState, message = '') {
+function setState(newState) {
     currentState = newState;
 
-    const orb = document.getElementById('state-orb');
-    orb.className = 'state-orb ' + newState;
-
-    // add the pulse animation
-    if (newState === STATES.LISTENING) {
-        orb.classList.add('pulse');
-    }
-
-    // update orb icon, label, and message
-    orb.textContent = STATE_ICONS[newState];
+    document.getElementById('state-dot').className = 'state-dot' + newState;
     document.getElementById('state-label').textContent = STATE_LABELS[newState];
-    if (message) {
-        document.getElementById('state-message').textContent = message;
-    }
+ 
+    bars.quiz.active = newState === STATES.SPEAKING;
 
-    // enable/disable buttons based on state
-    document.getElementById('btn-start').disabled = newState !== STATES.IDLE;
-    document.getElementById('btn-ptt').disabled = newState !== STATES.LISTENING;
-    document.getElementById('btn-stop').disabled = newState === STATES.IDLE;
-
+    if (newState !== STATES.LISTENING) bars.you.active = false;
+ 
+    document.getElementById('btn-mic').disabled = newState !== STATES.LISTENING;
+ 
     logDebug('info', 'state → ' + newState);
+}
+
+// end-of-quiz summary and error messages
+function setStatus(text, isError = false) {
+    const el = document.getElementById('status');
+    el.textContent = text || '';
+    el.classList.toggle('error', !!isError);
+}
+
+function setQuestion(text, dim = false) {
+    const el = document.getElementById('question');
+    el.textContent = text || '';
+    el.classList.toggle('dim', dim);
 }
 
 /* QUIZ FLOW FUNCTIONS */
@@ -61,11 +54,14 @@ let config = {
     tts: 'orpheus',
 };
 
-const NUM_QUESTIONS = 5;
+let totalQuestions = 5;
+let topic = 'general knowledge';
+let personality = 'classic';
 
 let turnCount  = 0;
 let correctCount = 0;
 let isRunning  = false;
+let results = [];
 
 let currentQuestion = '';
 let currentQuestionIndex = 0;
@@ -78,40 +74,19 @@ let audioStream = null;      // raw mic stram from the browser
 // AUDIO PLAYBACK STATE
 let currentAudio = null;    // the audio object currently playing
 
-// async function speakText(text) {
-//     const response = await fetch('/api/speak', {
-//         method: 'POST',
-//         headers: { 'Content-Type': 'application/json' },
-//         body: JSON.stringify({text: text, tts_model: config.tts}),
-//     });
+// THEME
+function toggleTheme() {
+    const root = document.documentElement;
+    const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    root.dataset.theme = next;
+ 
+    document.getElementById('theme-label').textContent = next === 'dark' ? 'Light' : 'Dark';
+    document.getElementById('theme-icon').innerHTML = next === 'dark'
+        ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+        : '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+}
 
-//     if (!response.ok) {
-//         throw new Error(`TTS failed (HTTP ${response.status})`);
-//     }
-
-//     const ttsLatency = parseInt(response.headers.get('X-TTS-Latency-Ms') || '0', 10);
-
-//     // read the response body as a blob (binary audio data)
-//     const audioBlob = await response.blob();
-
-//     // temporary URL that points at the blob in memory
-//     const audioUrl = URL.createObjectURL(audioBlob);
-
-//     // play the audio and wait until it finishes
-//     await new Promise((reslove, reject) => {
-//         currentAudio = new Audio(audioUrl);
-//         currentAudio.onended = () => reslove();
-//         currentAudio.onerror = () => reject(new Error('Audio playback failed'));
-//         currentAudio.play().catch(reject);
-//     });
-
-//     // clean up
-//     URL.revokeObjectURL(audioUrl);
-//     currentAudio = null;
-
-//     return ttsLatency;
-// }
-
+// TTS PLAYBACK
 async function speakText(text) {
     logDebug('info', `TTS input: "${text}"`);
 
@@ -134,34 +109,13 @@ async function speakText(text) {
     // temporary URL that points at the blob in memory
     const audioUrl = URL.createObjectURL(audioBlob);
 
-    // // play the audio and wait until it finishes
-    // await new Promise((resolve, reject) => {
-    //     currentAudio = new Audio(audioUrl);
-    //     currentAudio.onloadedmetadata = () =>
-    //         logDebug('info', `TTS duration: ${currentAudio.duration}s`);
-    //     currentAudio.onended = () => resolve();
-    //     currentAudio.onerror = () => reject(new Error('Audio playback failed'));
-    //     currentAudio.play().catch(reject);
-    // });
-
+    // play the audio and wait until it finishes
     await new Promise((resolve, reject) => {
         currentAudio = new Audio(audioUrl);
-        const tStart = performance.now();
-
         currentAudio.onloadedmetadata = () =>
             logDebug('info', `TTS duration: ${currentAudio.duration}s`);
-
-        currentAudio.onplay = () => logDebug('info', 'TTS playback started');
-
-        currentAudio.onended = () => {
-            const elapsed = ((performance.now() - tStart) / 1000).toFixed(2);
-            logDebug('info', `TTS ended after ${elapsed}s (played ${currentAudio.currentTime.toFixed(2)}s)`);
-            resolve();
-        };
-
+        currentAudio.onended = () => resolve();
         currentAudio.onerror = () => reject(new Error('Audio playback failed'));
-
-        // wait until enough is buffered before starting playback
         currentAudio.oncanplaythrough = () => currentAudio.play().catch(reject);
     });
 
@@ -180,23 +134,40 @@ function stopAudio() {
     }
 }
 
+
+// QUIZ FLOW
+
 async function startQuiz() {
+    const requested = parseInt(document.getElementById('cfg-count').value, 10);
+    totalQuestions = Math.min(20, Math.max(3, requested || 5));
+
     isRunning = true;
     turnCount = 0;
     correctCount = 0;
     currentQuestionIndex = 0;
-    document.getElementById('score-bar').style.display = 'flex';
-    updateScore();
+    results = [];
 
-    setState(STATES.SPEAKING, 'Preparing your first question...');
+    document.getElementById('screen-setup').hidden = true;
+    document.getElementById('screen-quiz').hidden = false;
+    document.getElementById('q-total').textContent = totalQuestions;
+    setStatus('');
+    setQuestion('');
+    setTranscript('');
+    renderTicks();
+    updateScore();
+    sizeCanvas();
+
+    logDebug('info', `quiz started · ${topic} · ${personality} · ${totalQuestions} questions`);
+    setState(STATES.PROCESSING);
 
     try {
         const response = await fetch('/api/start', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                topic: 'general knowledge',
-                num_questions: NUM_QUESTIONS,
+                topic: topic,
+                num_questions: totalQuestions,
+                personality: personality,
                 config: config,
             }),
         });
@@ -211,24 +182,36 @@ async function startQuiz() {
         currentQuestion = data.next_question;
         currentQuestionIndex = 0;
 
-        // speak the question out loud before opening the mic
-        setState(STATES.SPEAKING, currentQuestion);
-        try {
-            await speakText(currentQuestion);
-        } catch (err) {
-            logDebug('warn', 'TTS failed: ' + err.message);
-            await sleep(1500); // give time to read the text
-        }
-        if (!isRunning) return;
-
-        setState(STATES.LISTENING, currentQuestion);
-        setTranscript('');
+        await askQuestion();
 
     } catch (err) {
         logDebug('error', 'startQuiz failed: ' + err.message);
-        setState(STATES.ERROR, 'Could not start quiz.');
+        setState(STATES.ERROR);
+        setStatus('Could not start quiz.', true);
         isRunning = false;
     }
+}
+
+// speak the current question, then open the microphone
+async function askQuestion() {
+    document.getElementById('q-num').textContent = currentQuestionIndex + 1;
+
+    logDebug('info', `Q${currentQuestionIndex + 1}: ${currentQuestion}`);
+ 
+    setQuestion(currentQuestion);
+    setTranscript('');
+    setState(STATES.SPEAKING);
+ 
+    try {
+        await speakText(currentQuestion);
+    } catch (err) {
+        logDebug('warn', 'TTS failed: ' + err.message);
+        setStatus('Question could not be read aloud — check the log.', true);
+        await sleep(1500);
+    }
+ 
+    if (!isRunning) return;
+    setState(STATES.LISTENING);
 }
 
 async function pushToTalk() {
@@ -250,7 +233,8 @@ async function startRecording() {
         audioStream = await navigator.mediaDevices.getUserMedia({audio: true});
     } catch (err) {
         logDebug('error', 'mic access failed' + err.message);
-        setState(STATES.ERROR, 'Could not access microphone!');
+        setState(STATES.ERROR);
+        setStatus('Could not access the microphone.', true);
         isRunning = false;
         return;
     }
@@ -279,8 +263,12 @@ async function startRecording() {
 
     mediaRecorder.start();
 
-    document.getElementById('btn-ptt').textContent = '⏹ Stop';
-    setState(STATES.LISTENING, '🔴 Recording...');
+    bars.you.active = true;
+    startAnalyser(audioStream);
+
+    const mic = document.getElementById('btn-mic');
+    mic.textContent = 'Stop';
+    mic.classList.add('is-recording');
     logDebug('info', 'recording started');
 }
 
@@ -288,23 +276,30 @@ function stopRecording() {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.stop();
     }
-    document.getElementById('btn-ptt').textContent = '🎙 Speak';
+    const mic = document.getElementById('btn-mic');
+    mic.textContent = 'Speak';
+    mic.classList.remove('is-recording');
 }
 
 function releaseMicrophone() {
+    bars.you.active = false;
+    stopAnalyser();
+
     if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;
     }
 }
 
+// PIPELINE: transcribe - evaluate - speak feedback - next question
+
 async function processRecording(audioBlob, mimeType) {
-    setState(STATES.PROCESSING, 'Transcribing your answer...');
+    setState(STATES.PROCESSING);
 
     if (audioBlob.size < 1000) {
         logDebug('warn', 'recording too short (' + audioBlob.size + 'bytes)');
-        setState(STATES.LISTENING, currentQuestion);
-        setTranscript('(too short - speak longer)');
+        setTranscript('(too short — speak a little longer)');
+        setState(STATES.LISTENING);
         return;
     }
 
@@ -321,7 +316,8 @@ async function processRecording(audioBlob, mimeType) {
         );
 
         if (!transcribeResponse.ok) {
-            throw new Error(`STT failed (HTTP ${transcribeResponse.status})`);
+            const detail = await transcribeResponse.text();
+            throw new Error(`STT failed (HTTP ${transcribeResponse.status}): ${detail.slice(0, 200)}`);
         }
 
         const transcribeData = await transcribeResponse.json();
@@ -335,8 +331,6 @@ async function processRecording(audioBlob, mimeType) {
         if (!isRunning) return;     // if user clicked 'stop'
 
         // send transcript to /api/evaluate
-        setState(STATES.PROCESSING, 'Evaluating your answer...');
-
         const evaluateResponse = await fetch('/api/evaluate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -358,10 +352,20 @@ async function processRecording(audioBlob, mimeType) {
         // update score and continue the quiz
         if (evalData.is_correct) correctCount++;
         turnCount++;
+        results.push(!!evalData.is_correct);
+ 
+        showVerdict(evalData.is_correct);
+        renderTicks();
         updateScore();
 
+        const readMs = Math.min(4000, Math.max(900, sttTranscript.length * 65));
+        await sleep(readMs);
+        if (!isRunning) return;
+
+        setTranscript(evalData.message, 'Host')
+
         // speak the LLM's feedback out loud
-        setState(STATES.SPEAKING, evalData.message);
+        setState(STATES.SPEAKING);
         let ttsMs = 0;
         try {
             ttsMs = await speakText(evalData.message);
@@ -370,42 +374,25 @@ async function processRecording(audioBlob, mimeType) {
             await sleep(1500); // fallback: time to read
         }
 
-        recordTurn(
-            evalData.is_correct,
-            sttLatencyMs,
-            evalData.latency_ms?.llm || 0,
-            ttsMs,
-        );
+        recordTurn(evalData.is_correct, sttLatencyMs, evalData.latency_ms?.llm || 0, ttsMs);
 
         if (!isRunning) return;
 
         // is quiz done?
         if (evalData.quiz_done) {
-            setState(STATES.IDLE,
-                `Quiz complete! You got ${correctCount} out of ${NUM_QUESTIONS} correct.`);
-            document.getElementById('score-bar').style.display = 'none';
-            isRunning = false;
+            finishQuiz();
             return;
         }
 
         currentQuestion = evalData.next_question;
         currentQuestionIndex++;
 
-        setTranscript('');
-        setState(STATES.SPEAKING, currentQuestion);
-        try {
-            await speakText(currentQuestion);
-        } catch (err) {
-            logDebug('warn', 'TTS failed: ', err.message);
-            await sleep(1500);
-        }
-        if (!isRunning) return;
-
-        setState(STATES.LISTENING, currentQuestion);
+        await askQuestion();
 
     } catch (err) {
         logDebug('error', 'pipeline failed: ' + err.message);
-        setState(STATES.ERROR, err.message);
+        setState(STATES.ERROR);
+        setStatus(err.message, true);
         isRunning = false;
     }
     
@@ -421,6 +408,17 @@ function mimeTypeToExtension(mimeType) {
     return 'webm';
 }
 
+function finishQuiz() {
+    isRunning = false;
+    setState(STATES.IDLE);
+    setQuestion(`Quiz complete! Score: ${correctCount}/${totalQuestions}`);
+    setTranscript('');
+    setStatus('');
+    document.getElementById('btn-mic').disabled = true;
+    logDebug('info', `quiz complete · ${correctCount}/${totalQuestions}`);
+}
+
+// back to the setup screen
 function stopQuiz() {
     isRunning = false;
 
@@ -430,36 +428,198 @@ function stopQuiz() {
     releaseMicrophone();
     stopAudio();
 
-    document.getElementById('btn-ptt').textContent = '🎙 Speak';
-    document.getElementById('score-bar').style.display = 'none';
-    setState(STATES.IDLE,
-        `Quiz stopped. You got ${correctCount} out of ${turnCount} correct.`
-    );
-    setTranscript('');
+    const mic = document.getElementById('btn-mic');
+    mic.textContent = 'Speak';
+    mic.classList.remove('is-recording');
+ 
+    setState(STATES.IDLE);
+    logDebug('info', `quiz stopped · ${correctCount}/${turnCount}`);
+ 
+    document.getElementById('screen-quiz').hidden = true;
+    document.getElementById('screen-setup').hidden = false;
+}
+
+// VERDICT
+
+function showVerdict(correct) {
+    const css = getComputedStyle(document.documentElement);
+    verdict.colour = css.getPropertyValue(correct ? '--right' : '--danger').trim();
+    verdict.until = performance.now() + 1400;
+ 
+    // kick every bar outward, then let the normal decay bring it down
+    const count = bars.quiz.levels.length;
+    const shape = i => 0.55 + 0.45 * Math.sin(Math.PI * (i / count));
+    for (let i = 0; i < count; i++) {
+        bars.quiz.levels[i] = shape(i) * (correct ? 1 : 0.6);
+        bars.you.levels[i]  = shape(i) * (correct ? 1 : 0.6);
+    }
+ 
+    const scoreEl = document.getElementById('score');
+    scoreEl.classList.remove('pulse-right', 'pulse-wrong');
+    void scoreEl.offsetWidth;                   // restart the CSS animation
+    scoreEl.classList.add(correct ? 'pulse-right' : 'pulse-wrong');
+    setTimeout(() => scoreEl.classList.remove('pulse-right', 'pulse-wrong'), 600);
+ 
+    const box = document.getElementById('transcript-box');
+    box.classList.remove('right', 'wrong');
+    box.classList.add(correct ? 'right' : 'wrong');
+    setTimeout(() => box.classList.remove('right', 'wrong'), 1600);
 }
 
 /* HELPER FUNCTIONS */
 
 // update the score bar
 function updateScore() {
-    document.getElementById('q-num').textContent = Math.min(turnCount + 1, NUM_QUESTIONS);
-    document.getElementById('q-total').textContent = NUM_QUESTIONS;
-    document.getElementById('score-correct').textContent = correctCount;
-    document.getElementById('m-turns').textContent = turnCount;
-    const acc = turnCount > 0
-        ? Math.round((correctCount / turnCount) * 100) + '%'
-        : '—';
-    document.getElementById('m-acc').textContent = acc;
+    document.getElementById('score').textContent = correctCount;
+}
+
+// one tick per question
+function renderTicks() {
+    const el = document.getElementById('ticks');
+    el.innerHTML = '';
+    for (let i = 0; i < totalQuestions; i++) {
+        const tick = document.createElement('span');
+        let cls = 'tick';
+        if (i < results.length)      cls += results[i] ? ' done' : ' wrong';
+        else if (i === results.length) cls += ' now';
+        tick.className = cls;
+        el.appendChild(tick);
+    }
 }
 
 // show the STT transcript
-function setTranscript(text) {
-    document.getElementById('transcript-text').textContent = text || 'Your spoken answer will appear here...';
+function setTranscript(text, label = 'Heard') {
+    const el = document.getElementById('transcript');
+    el.textContent = text || 'waiting for your answer';
+    el.classList.toggle('empty', !text);
+    document.querySelector('.transcript-label').textContent = label;
 }
 
 // async sleep helper
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// EQUALIZER
+
+const canvas = document.getElementById('scope');
+const ctx = canvas.getContext('2d');
+ 
+const BAR_W = 3, BAR_GAP = 4, MAX_H = 46;
+ 
+const bars = {
+    quiz: { active: false, levels: [], seed: 0.0 },
+    you:  { active: false, levels: [], seed: 9.3 },
+};
+ 
+const verdict = { colour: null, until: 0 };
+ 
+function sizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+ 
+    const count = Math.floor(rect.width / (BAR_W + BAR_GAP));
+    for (const ch of Object.values(bars)) {
+        while (ch.levels.length < count) ch.levels.push(0);
+        ch.levels.length = count;
+    }
+}
+window.addEventListener('resize', sizeCanvas);
+ 
+function getLevels(ch, i, count, t) {
+    if (!ch.active) return 0;
+
+    // real microphone spectrum for the user channel
+    if (ch === bars.you && freqData) {
+        const usable = Math.floor(freqData.length * 0.45);
+        const bin = Math.min(usable - 1, Math.floor((i / count) * usable));
+        return freqData[bin] / 255;
+    }
+
+    const syllable = 0.55 + 0.45 * Math.sin(t * 0.006 + ch.seed)
+                          * Math.sin(t * 0.017 + ch.seed * 2);
+    const p = i / count;
+    const shape = Math.sin(Math.PI * p) ** 0.6;      // quieter towards the edges
+    const detail = 0.45
+        + 0.30 * Math.sin(p * 26 + t * 0.011 + ch.seed)
+        + 0.25 * Math.sin(p * 57 - t * 0.008 + ch.seed * 3);
+    return Math.max(0, syllable * shape * detail);
+}
+ 
+function drawChannel(ch, colour, offset, t) {
+    const rect = canvas.getBoundingClientRect();
+    const mid = rect.height / 2;
+    const count = ch.levels.length;
+ 
+    ctx.fillStyle = colour;
+    for (let i = 0; i < count; i++) {
+        const target = getLevels(ch, i, count, t);
+        const k = target > ch.levels[i] ? 0.35 : 0.10;   // fast attack, slow decay
+        ch.levels[i] += (target - ch.levels[i]) * k;
+ 
+        const h = ch.levels[i] * MAX_H;
+        if (h < 0.4) continue;                            // silent bars leave only the line
+        const x = i * (BAR_W + BAR_GAP) + offset;
+        ctx.beginPath();
+        ctx.roundRect(x, mid - h, BAR_W, h * 2, BAR_W / 2);
+        ctx.fill();
+    }
+}
+ 
+function frame(t) {
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+ 
+    const css = getComputedStyle(document.documentElement);
+    const mid = rect.height / 2;
+    const flashing = performance.now() < verdict.until;
+
+    if (analyser) analyser.getByteFrequencyData(freqData);
+ 
+    // the resting line takes the colour of whoever is active
+    const lineColour = flashing ? verdict.colour
+        : bars.quiz.active ? css.getPropertyValue('--quiz').trim()
+        : bars.you.active  ? css.getPropertyValue('--you').trim()
+        : css.getPropertyValue('--border').trim();
+ 
+    ctx.strokeStyle = lineColour;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(rect.width, mid);
+    ctx.stroke();
+ 
+    const quizColour = flashing ? verdict.colour : css.getPropertyValue('--quiz').trim();
+    const youColour  = flashing ? verdict.colour : css.getPropertyValue('--you').trim();
+ 
+    drawChannel(bars.quiz, quizColour, 0, t);
+    drawChannel(bars.you,  youColour, (BAR_W + BAR_GAP) / 2, t);
+ 
+    requestAnimationFrame(frame);
+}
+
+
+let audioCtx = null;
+let analyser = null;
+let freqData = null;
+
+function startAnalyser(stream) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;                  // 128 frequency bins
+    analyser.smoothingTimeConstant = 0.65;   // the analyser does some smoothing itself
+    source.connect(analyser);
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+}
+
+function stopAnalyser() {
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+    analyser = null;
+    freqData = null;
 }
 
 /* DEBUG PANEL FUNCTIONS */
@@ -468,9 +628,8 @@ let debugVisible = true;
 
 function toggleDebug() {
     debugVisible = !debugVisible;
-    document.getElementById('debug-body').classList.toggle('hidden', !debugVisible);
-    document.getElementById('debug-toggle-btn').textContent =
-        debugVisible ? 'hide ▲' : 'show ▼';
+    document.getElementById('debug-body').hidden = !debugVisible;
+    document.getElementById('debug-caret').textContent = debugVisible ? 'hide ▲' : 'show ▼';
 }
 
 function updateConfig() {
@@ -482,8 +641,6 @@ function updateConfig() {
 
 function recordTurn(correct, sttMs, llmMs, ttsMs) {
     const total = sttMs + llmMs + ttsMs;
-
-    document.getElementById('m-total').textContent = total;
 
     const msg = `STT ${sttMs}ms · LLM ${llmMs}ms · TTS ${ttsMs}ms · total ${total}ms · ${correct ? 'correct' : 'wrong'}`;
     logDebug(correct ? 'correct' : 'wrong', msg);
@@ -498,14 +655,7 @@ function logDebug(type, message) {
     });
     logEntries.unshift({ ts, type, message, stt: config.stt, llm: config.llm, tts: config.tts });
 
-    const box = document.getElementById('log-box');
-
-    // clear the "no turns yet" placeholder on first entry
-    if (box.children.length === 1 &&
-        box.children[0].querySelector('.log-ts')?.textContent === '—') {
-        box.innerHTML = '';
-    }
-
+    const box = document.getElementById('log');
     const div = document.createElement('div');
     div.className = 'log-entry';
 
@@ -546,4 +696,35 @@ function clearLog() {
     document.getElementById('m-total').textContent = '—';
 }
 
-logDebug('info', 'app initialised — waiting for quiz start');
+// SETUP SCREEN CONTROLS
+function initChoiceGroup(containerId, onSelect) {
+    const container = document.getElementById(containerId);
+    container.addEventListener('click', (event) => {
+        const btn = event.target.closest('[data-value]');
+        if (!btn) return;
+
+        container.querySelectorAll('[data-value]').forEach(el => {
+            const active = el === btn;
+            el.classList.toggle('is-active', active);
+            el.setAttribute('aria-checked', active ? 'true' : 'false');
+        });
+
+        onSelect(btn.dataset.value);
+    });
+}
+
+initChoiceGroup('category-row', value => { topic = value; });
+initChoiceGroup('host-grid',    value => { personality = value; });
+
+// slider readout
+const countInput = document.getElementById('cfg-count');
+countInput.addEventListener('input', () => {
+    document.getElementById('count-value').textContent = countInput.value;
+});
+
+// BOOT
+
+sizeCanvas();
+requestAnimationFrame(frame);
+updateConfig();
+logDebug('info', 'app initialised, waiting for quiz start');

@@ -6,6 +6,9 @@ import random
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from .hosts import build_evaluator_prompt, build_evaluator_user_message, DEFAULT_HOST
+from .json_parse import parse_evaluator_response
+
 # Load API key
 load_dotenv()
 
@@ -115,7 +118,8 @@ def generate_question(topic: str, question_number: int, previous_questions: list
 
 
 # Reasoning disabled by default ("low", "medium" showd now accuracy improvement over "none")
-def evaluate_answer(question: str, user_answer: str, reasoning_effort: str | None = None, model: str = MODEL) -> tuple[bool, str, str, float]:
+def evaluate_answer(question: str, user_answer: str, reasoning_effort: str | None = None, model: str = MODEL, host: str = DEFAULT_HOST,
+                    question_number: int = None, total_questions: int = None, score: int = None, streak: int = None) -> tuple[bool, str, str, float]:
 
     t_start = time.time()
 
@@ -127,49 +131,22 @@ def evaluate_answer(question: str, user_answer: str, reasoning_effort: str | Non
     response = get_client().chat.completions.create(
         model=model,
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a quiz evaluator. Your job is to judge whether a user's answer "
-                    "to a quiz question is correct.\n\n"
-                    "Rules:\n"
-                    "- Be generous: accept answers that are essentially correct even if "
-                    "  phrased differently, abbreviated, or slightly misspelled\n"
-                    "- The FIRST word of your response must be either CORRECT or WRONG — "
-                    "  this is critical, do not start with anything else\n"
-                    "- After that first word, add one short sentence of explanation\n"
-                    "- If the user did not provide an answer, says they don't know, or "
-                    "  gives an unrelated/nonsense response, mark it WRONG and "
-                    "  ALWAYS include the correct answer in your explanation\n"
-                    "- Keep your total response under 30 words"
-                )
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Question: {question}\n"
-                    f"User's answer: {user_answer}\n\n"
-                    f"Is this answer correct?"
-                )
-            }
+            {"role": "system", "content": build_evaluator_prompt(host)},
+            {"role": "user", "content": build_evaluator_user_message(
+                question, user_answer, question_number, total_questions, score, streak)},
         ],
-        temperature=0.0,
+        temperature=0.6,
         max_tokens=2000,
         **kwargs,
-        # extra_body={"reasoning": reasoning_config(reasoning_effort)},
     )
 
     msg = response.choices[0].message
-    explanation = (msg.content or "").strip()
     reasoning = extract_reasoning(msg)
     latency_ms = (time.time() - t_start) * 1000
 
-    if not explanation:
-        return False, "I could not evaluate that answer. Let's continue.", reasoning, latency_ms
-
-    is_correct = explanation.upper().startswith("CORRECT")
-
-    return is_correct, explanation, reasoning, latency_ms
+    is_correct, speech = parse_evaluator_response(msg.content)
+    
+    return is_correct, speech, reasoning, latency_ms
 
 # Terminal quiz mode: py openrouter_client.py
 def run_quiz(model: str = MODEL):

@@ -21,7 +21,7 @@ import requests
 API_BASE = "http://localhost:8000"
 RESULTS_DIR = "../../results"
 
-DEFAULT_MODELS = ["llama-groq", "qwen-openrouter"]
+DEFAULT_MODELS = ["llama-groq", "qwen-openrouter", "mistral-openrouter", "gpt-openrouter", "gemini-openrouter", "nemotron-openrouter"]
 
 DEFAULT_N = 15
 DEFAULT_TOPIC = "general knowledge"

@@ -48,6 +48,8 @@ function setQuestion(text, dim = false) {
 
 /* QUIZ FLOW FUNCTIONS */
 
+let runId = 0;
+
 let config = {
     stt: 'whisper-groq',
     llm: 'llama-groq',
@@ -87,7 +89,7 @@ function toggleTheme() {
 }
 
 // TTS PLAYBACK
-async function speakText(text) {
+async function speakText(text, token) {
     logDebug('info', `TTS input: "${text}"`);
 
     const response = await fetch('/api/speak', {
@@ -106,17 +108,23 @@ async function speakText(text) {
     const audioBlob = await response.blob();
     logDebug('info', `TTS blob: ${audioBlob.size} bytes`);
 
+    if (token !== runId) return 0;
+
     // temporary URL that points at the blob in memory
     const audioUrl = URL.createObjectURL(audioBlob);
 
     // play the audio and wait until it finishes
     await new Promise((resolve, reject) => {
         currentAudio = new Audio(audioUrl);
-        currentAudio.onloadedmetadata = () =>
-            logDebug('info', `TTS duration: ${currentAudio.duration}s`);
+        // currentAudio.onloadedmetadata = () =>
+        //     logDebug('info', `TTS duration: ${currentAudio.duration}s`);
         currentAudio.onended = () => resolve();
         currentAudio.onerror = () => reject(new Error('Audio playback failed'));
-        currentAudio.oncanplaythrough = () => currentAudio.play().catch(reject);
+        // currentAudio.oncanplaythrough = () => currentAudio.play().catch(reject);
+        currentAudio.oncanplaythrough = () => {
+            if (token !== runId) {resolve(); return;}
+            currentAudio.play().catch(reject);
+        };
     });
 
     // clean up
@@ -138,6 +146,8 @@ function stopAudio() {
 // QUIZ FLOW
 
 async function startQuiz() {
+    const token = ++runId;
+    
     const requested = parseInt(document.getElementById('cfg-count').value, 10);
     totalQuestions = Math.min(20, Math.max(3, requested || 5));
 
@@ -150,6 +160,7 @@ async function startQuiz() {
     document.getElementById('screen-setup').hidden = true;
     document.getElementById('screen-quiz').hidden = false;
     document.getElementById('q-total').textContent = totalQuestions;
+    document.getElementById('q-num').textContent = 1;
     setStatus('');
     setQuestion('');
     setTranscript('');
@@ -177,12 +188,24 @@ async function startQuiz() {
         }
 
         const data = await response.json();
-        if (!isRunning) return;         // user pressed stop
+        // if (!isRunning) return;         // user pressed stop
+        if (token !== runId) return;
 
         currentQuestion = data.next_question;
         currentQuestionIndex = 0;
 
-        await askQuestion();
+        setQuestion(currentQuestion);
+        setState(STATES.SPEAKING);
+        try {
+            await speakText(data.message, token);
+        } catch (err) {
+            logDebug('warn', 'TTS failed: ' + err.message);
+            await sleep(1500);
+        }
+        // if (!isRunning) return;
+        if (token !== runId) return;
+        
+        setState(STATES.LISTENING);
 
     } catch (err) {
         logDebug('error', 'startQuiz failed: ' + err.message);
@@ -193,7 +216,7 @@ async function startQuiz() {
 }
 
 // speak the current question, then open the microphone
-async function askQuestion() {
+async function askQuestion(token) {
     document.getElementById('q-num').textContent = currentQuestionIndex + 1;
 
     logDebug('info', `Q${currentQuestionIndex + 1}: ${currentQuestion}`);
@@ -203,14 +226,15 @@ async function askQuestion() {
     setState(STATES.SPEAKING);
  
     try {
-        await speakText(currentQuestion);
+        await speakText(currentQuestion, token);
     } catch (err) {
         logDebug('warn', 'TTS failed: ' + err.message);
         setStatus('Question could not be read aloud — check the log.', true);
         await sleep(1500);
     }
  
-    if (!isRunning) return;
+    // if (!isRunning) return;
+    if (token !== runId) return;
     setState(STATES.LISTENING);
 }
 
@@ -228,6 +252,7 @@ async function pushToTalk() {
 }
 
 async function startRecording() {
+    const token = runId;
     try {
         // request microphone access
         audioStream = await navigator.mediaDevices.getUserMedia({audio: true});
@@ -258,7 +283,7 @@ async function startRecording() {
 
         releaseMicrophone();
 
-        await processRecording(audioBlob, mimeType);
+        await processRecording(audioBlob, mimeType, token);
     };
 
     mediaRecorder.start();
@@ -293,7 +318,7 @@ function releaseMicrophone() {
 
 // PIPELINE: transcribe - evaluate - speak feedback - next question
 
-async function processRecording(audioBlob, mimeType) {
+async function processRecording(audioBlob, mimeType, token) {
     setState(STATES.PROCESSING);
 
     if (audioBlob.size < 1000) {
@@ -328,7 +353,8 @@ async function processRecording(audioBlob, mimeType) {
         setTranscript(sttTranscript);
         logDebug('info', `transcript: "${sttTranscript}" (${sttLatencyMs}ms)`)
 
-        if (!isRunning) return;     // if user clicked 'stop'
+        // if (!isRunning) return;     // if user clicked 'stop'
+        if (token !== runId) return;
 
         // send transcript to /api/evaluate
         const evaluateResponse = await fetch('/api/evaluate', {
@@ -347,7 +373,8 @@ async function processRecording(audioBlob, mimeType) {
         }
 
         const evalData = await evaluateResponse.json();
-        if (!isRunning) return;
+        // if (!isRunning) return;
+        if (token !== runId) return;
 
         // update score and continue the quiz
         if (evalData.is_correct) correctCount++;
@@ -358,9 +385,10 @@ async function processRecording(audioBlob, mimeType) {
         renderTicks();
         updateScore();
 
-        const readMs = Math.min(4000, Math.max(900, sttTranscript.length * 65));
+        const readMs = Math.min(2500, Math.max(600, sttTranscript.length * 40));
         await sleep(readMs);
-        if (!isRunning) return;
+        // if (!isRunning) return;
+        if (token !== runId) return;
 
         setTranscript(evalData.message, 'Host')
 
@@ -368,7 +396,7 @@ async function processRecording(audioBlob, mimeType) {
         setState(STATES.SPEAKING);
         let ttsMs = 0;
         try {
-            ttsMs = await speakText(evalData.message);
+            ttsMs = await speakText(evalData.message, token);
         } catch (err) {
             logDebug('warn', 'TTS failed: ' + err.message);
             await sleep(1500); // fallback: time to read
@@ -376,7 +404,8 @@ async function processRecording(audioBlob, mimeType) {
 
         recordTurn(evalData.is_correct, sttLatencyMs, evalData.latency_ms?.llm || 0, ttsMs);
 
-        if (!isRunning) return;
+        // if (!isRunning) return;
+        if (token !== runId) return;
 
         // is quiz done?
         if (evalData.quiz_done) {
@@ -387,7 +416,7 @@ async function processRecording(audioBlob, mimeType) {
         currentQuestion = evalData.next_question;
         currentQuestionIndex++;
 
-        await askQuestion();
+        await askQuestion(token);
 
     } catch (err) {
         logDebug('error', 'pipeline failed: ' + err.message);
@@ -420,6 +449,7 @@ function finishQuiz() {
 
 // back to the setup screen
 function stopQuiz() {
+    runId++;
     isRunning = false;
 
     if (mediaRecorder && mediaRecorder.state === 'recording') {

@@ -1,0 +1,74 @@
+{
+  "fixtures": [
+    {
+      "file": "short_correct.webm",
+      "question": "What is the capital city of France?",
+      "expected_transcript": "Paris",
+      "expected_verdict": "CORRECT",
+      "length": "short"
+    },
+    {
+      "file": "short_correct_2.webm",
+      "question": "What is the largest planet in our solar system?",
+      "expected_transcript": "Jupiter",
+      "expected_verdict": "CORRECT",
+      "length": "short"
+    },
+    {
+      "file": "medium_correct.webm",
+      "question": "What is the capital city of France?",
+      "expected_transcript": "I think it's Paris",
+      "expected_verdict": "CORRECT",
+      "length": "medium"
+    },
+    {
+      "file": "medium_correct_2.webm",
+      "question": "What is the largest planet in our solar system?",
+      "expected_transcript": "It's Jupiter, the biggest one",
+      "expected_verdict": "CORRECT",
+      "length": "medium"
+    },
+    {
+      "file": "long_correct.webm",
+      "question": "What is the capital city of France?",
+      "expected_transcript": "Um, I'm fairly sure it's Paris, the capital of France",
+      "expected_verdict": "CORRECT",
+      "length": "long"
+    },
+    {
+      "file": "short_wrong.webm",
+      "question": "What is the capital city of Australia?",
+      "expected_transcript": "Sydney",
+      "expected_verdict": "WRONG",
+      "length": "short"
+    },
+    {
+      "file": "long_wrong.webm",
+      "question": "What is the capital city of Australia?",
+      "expected_transcript": "I think maybe it's Sydney, or possibly Melbourne",
+      "expected_verdict": "WRONG",
+      "length": "long"
+    },
+    {
+      "file": "dont_know.webm",
+      "question": "What is the chemical symbol for gold?",
+      "expected_transcript": "I don't know",
+      "expected_verdict": "WRONG",
+      "length": "short"
+    },
+    {
+      "file": "hesitation.webm",
+      "question": "Which metal is liquid at room temperature?",
+      "expected_transcript": "Hmm... uh... let me think",
+      "expected_verdict": "WRONG",
+      "length": "medium"
+    },
+    {
+      "file": "silence.webm",
+      "question": "What is the tallest mountain in the world?",
+      "expected_transcript": "",
+      "expected_verdict": "WRONG",
+      "length": "silence"
+    }
+  ]
+}

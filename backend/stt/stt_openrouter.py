@@ -14,13 +14,10 @@ LANGUAGE = "en"
 
 # name, slug, language
 STT_MODELS = {
-    "1": ("Whisper v1 (OpenAI)", "openai/whisper-1", "en"),
+    "1": ("Whisper Large V3 Turbo", "openai/whisper-large-v3-turbo", "en"),
     "2": ("GPT-4o Mini Transcribe", "openai/gpt-4o-mini-transcribe", "en"),
     "3": ("Deepgram Nova-3", "deepgram/nova-3", "en"),
-    "4": ("NVIDIA Parakeet TDT", "nvidia/parakeet-tdt-0.6b-v3", "en"),
-    "5": ("Voxtral Mini Transcribe", "mistralai/voxtral-mini-transcribe", "en"),
-    "6": ("Qwen3 ASR Flash", "qwen/qwen3-asr-flash-2026-02-10", "en"),
-    "7": ("Google Chirp 3", "google/chirp-3", "en"),
+    "4": ("Voxtral Mini Transcribe", "mistralai/voxtral-mini-transcribe", "en"),
 }
 
 client = None

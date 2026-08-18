@@ -6,8 +6,13 @@ import random
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .hosts import build_evaluator_prompt, build_evaluator_user_message, DEFAULT_HOST
-from .json_parse import parse_evaluator_response
+# from .hosts import build_evaluator_prompt, build_evaluator_user_message, DEFAULT_HOST
+# from .json_parse import parse_evaluator_response
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from hosts import build_evaluator_prompt, build_evaluator_user_message, DEFAULT_HOST
+from json_parse import parse_evaluator_response
 
 # Load API key
 load_dotenv()
@@ -18,6 +23,8 @@ MODEL_REASONING = {
     "qwen/qwen3.6-27b": {"enabled": False},
     "openai/gpt-5.4-mini": None, # non-reasoning is default
     "mistralai/mistral-medium-3-5": None,
+    "google/gemini-3.7-flash": None,
+    "nvidia/nemotron-3.5-lightning:free": {"enabled": False},
 }
 
 BASE_URL = "https://openrouter.ai/api/v1"
@@ -100,7 +107,6 @@ def generate_question(topic: str, question_number: int, previous_questions: list
         temperature=0.7,
         max_tokens=1000,
         **kwargs,
-        # extra_body={"reasoning": reasoning_config(reasoning_effort)},
     )
 
     msg = response.choices[0].message
@@ -485,13 +491,16 @@ def run_dataset_test(csv_path = TEST_DATASET_PATH, num_questions = 50, difficult
 
 if __name__ == "__main__":
     if "--test" in sys.argv:
-        # model = "qwen/qwen3.6-27b"
-        model = "openai/gpt-5.4-mini"
+        model = "qwen/qwen3.6-27b"
+        # model = "openai/gpt-5.4-mini"
         # model = "mistralai/mistral-medium-3-5"
+        # model = "google/gemini-3.7-flash"
         run_dataset_test(num_questions=50, model=model)
     else:
         # model = "qwen/qwen3.6-27b"
         # model = "openai/gpt-5.4-mini"
-        model = "mistralai/mistral-medium-3-5"
+        # model = "mistralai/mistral-medium-3-5"
+        # model = "google/gemini-3.7-flash"
+        model = "nvidia/nemotron-3.5-lightning:free"
 
         run_quiz(model)

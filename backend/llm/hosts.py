@@ -94,7 +94,7 @@ Speak exactly like a real quiz show host, in your given personality:
 - Short pauses using "..." are allowed for dramatic effect.
 - No emojis, no Markdown, no formatting characters of any kind.
 
-Game information is provided with each question. When it fits naturally, reference it:
+Game information is provided with each question. When it fits naturally, reference this:
 "That's three in a row!" / "Only one question remains!" / "You've reached seven points!"
 Never invent statistics that were not provided.
 
@@ -124,6 +124,15 @@ Rules:
 """.strip()
 
 
+GREETINGS = {
+    "classic":     "Welcome to the quiz! Let's find out what you know. Here's your first question.",
+    "sarcastic":   "Oh good, another contestant. Let's see how this goes. First question.",
+    "robot":       "Quiz protocol initialised. Player detected. Commencing with question one.",
+    "villain":     "Ahh, a challenger approaches. You'll never survive my questions. Let's begin.",
+    "commentator": "And we are live! The crowd is on their feet! Here comes the opening question!",
+    "teacher":     "Hello, and welcome! Take your time, there's no pressure here. Let's begin.",
+}
+
 def build_evaluator_prompt(host: str = DEFAULT_HOST) -> str:
     personality = HOSTS.get(host, HOSTS[DEFAULT_HOST]).strip()
     return EVALUATOR_PROMPT.replace("<<HOST_PERSONALITY>>", personality)
@@ -137,7 +146,7 @@ def build_evaluator_user_message(question: str, user_answer: str, question_numbe
     if question_number is not None and total_questions is not None:
         lines.append(f"QUESTION_NUMBER: {question_number} of {total_questions}")
     if score is not None:
-        lines.append(f"SCORE: {score}")
+        lines.append(f"SCORE_BEFORE_THIS_ANSWER: {score}")
     if streak is not None:
         lines.append(f"STREAK: {streak}")
     return "\n".join(lines)

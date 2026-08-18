@@ -283,7 +283,11 @@ def run_dataset_test(csv_path = TEST_DATASET_PATH, num_questions = 50, difficult
 
 if __name__ == "__main__":
 
-    if "--test" in sys.argv:
-        run_dataset_test(num_questions=50, difficulty=None)
-    else:
-        run_quiz()
+    # if "--test" in sys.argv:
+    #     run_dataset_test(num_questions=50, difficulty=None)
+    # else:
+    #     run_quiz()
+
+    # from llm.groq_client import get_client
+    for m in sorted(get_client().models.list().data, key=lambda x: x.id):
+        print(m.id)

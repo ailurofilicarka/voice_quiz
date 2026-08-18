@@ -12,6 +12,7 @@ import wave
 from llm import groq_client, openrouter_client
 from tts import tts_groq, tts_openrouter
 from stt import whisper_groq, stt_openrouter
+from llm.hosts import GREETINGS
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -67,11 +68,13 @@ class QuizResponse(BaseModel):
 
 # MODEL REGISTRY
 LLM_MODELS = {
-    "llama-groq": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+    # "llama-groq": {"provider": "groq", "model": "llama-3.3-70b-versatile"}, NEMA VISE
     # "llama-8b-groq": "llama-3.1-8b-instant",
     "qwen-openrouter": {"provider": "openrouter", "model": "qwen/qwen3.6-27b"},
     "mistral-openrouter": {"provider": "openrouter", "model": "mistralai/mistral-medium-3-5"},
     "gpt-openrouter":  {"provider": "openrouter", "model": "openai/gpt-5.4-mini"},
+    "gemini-openrouter": {"provider": "openrouter", "model": "google/gemini-3.7-flash"},
+    "nemotron-openrouter": {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"}
 }
 
 LLM_CLIENTS = {
@@ -85,15 +88,10 @@ LLM_TIMEOUT_S = {
 }
 
 STT_MODELS = {
-    "whisper-groq": {"provider": "groq", "model": "whisper-large-v3-turbo", "language": "en"},
-    "whisper-groq-large": {"provider": "groq", "model": "whisper-large-v3", "language": "en"},
-    # "whisper-or": {"provider": "openrouter", "model": "openai/whisper-1", "language": "en"},
+    "whisper-large-v3": {"provider": "openrouter", "model": "openai/whisper-large-v3-turbo", "language": "en"},
     "gpt4o-transcribe": {"provider": "openrouter", "model": "openai/gpt-4o-mini-transcribe", "language": "en"},
     "nova-3": {"provider": "openrouter", "model": "deepgram/nova-3", "language": "en"},
-    "parakeet": {"provider": "openrouter", "model": "nvidia/parakeet-tdt-0.6b-v3", "language": "en"},
     "voxtral-stt": {"provider": "openrouter", "model": "mistralai/voxtral-mini-transcribe", "language": "en"},
-    # "qwen-asr": {"provider": "openrouter", "model": "qwen/qwen3-asr-flash-2026-02-10", "language": "en"},
-    # "chirp-3": {"provider": "openrouter", "model": "google/chirp-3", "language": "en"},
 }
 
 STT_CLIENTS = {
@@ -102,11 +100,12 @@ STT_CLIENTS = {
 }
 
 TTS_MODELS = {
-    "orpheus": {"provider": "groq", "model": "canopylabs/orpheus-v1-english", "voice": "troy", "format": "wav"},
+    # "orpheus": {"provider": "groq", "model": "canopylabs/orpheus-v1-english", "voice": "troy", "format": "wav"},
     "kokoro": {"provider": "openrouter", "model": "hexgrad/kokoro-82m", "voice": "af_bella", "format": "pcm"},
-    "gemini-tts": {"provider": "openrouter", "model": "google/gemini-3.1-flash-tts-preview", "voice": "Charon", "format": "pcm"},
+    # "gemini-tts": {"provider": "openrouter", "model": "google/gemini-3.1-flash-tts-preview", "voice": "Charon", "format": "pcm"},
     "qwen-tts": {"provider": "openrouter", "model": "qwen/qwen-audio-3.0-tts-flash", "voice": "loongjohn", "format": "mp3"},
     "deepgram-aura": {"provider": "openrouter", "model": "deepgram/aura-2", "voice": "aura-2-thalia-en", "format": "pcm"},
+    "minimax-speech": {"provider": "openrouter", "model": "minimax/speech-2.8-turbo", "voice": "Friendly_Person", "format": "mp3"},
 }
 
 TTS_CLIENTS = {
@@ -220,6 +219,8 @@ async def start_quiz(request: StartRequest):
 
     llm_client, llm_model = resolve_llm(request.config.llm)
 
+    greeting = GREETINGS.get(request.personality, GREETINGS["classic"])
+
     # generate first question with LLM
     try:
         first_question, llm_latency_ms = call_generate_question(
@@ -251,7 +252,7 @@ async def start_quiz(request: StartRequest):
 
     return {
         "success": True,
-        "message": f"Welcome! Here is your first question: {first_question}",
+        "message": f"{greeting} {first_question}",
         "next_question": first_question,
         "quiz_done": False,
         "latency_ms": {
@@ -437,28 +438,25 @@ async def health_check():
 async def list_models():
     return {
         "stt": [
-            {"id": "whisper-groq", "name": "Whisper Large V3 Turbo", "provider": "Groq"},
-            {"id": "whisper-groq-large", "name": "Whisper Large V3", "provider": "Groq"},
-            # {"id": "whisper-or", "name": "Whisper v1", "provider": "OpenRouter"},
+            {"id": "whisper-large-v3", "name": "Whisper Large V3 Turbo", "provider": "OpenRouter"},
             {"id": "gpt4o-transcribe", "name": "GPT-4o Mini Transcribe","provider": "OpenRouter"},
             {"id": "nova-3", "name": "Deepgram Nova-3", "provider": "OpenRouter"},
-            {"id": "parakeet", "name": "NVIDIA Parakeet", "provider": "OpenRouter"},
             {"id": "voxtral-stt", "name": "Voxtral Transcribe", "provider": "OpenRouter"},
-            # {"id": "qwen-asr", "name": "Qwen3 ASR Flash", "provider": "OpenRouter"},
-            # {"id": "chirp-3", "name": "Google Chirp 3", "provider": "OpenRouter"},
         ],
         "llm": [
-            {"id": "llama-groq", "name": "LLama 3.3 70B", "provider": "Groq"},
-            # {"id": "llama-8b-groq", "name": "Llama 3.1 8B", "provider": "Groq"},
+            # {"id": "llama-groq", "name": "LLama 3.3 70B", "provider": "Groq"},
             {"id": "qwen-openrouter", "name": "Qwen 3.6 27B", "provider": "OpenRouter"},
             {"id": "mistral-openrouter", "name": "Mistral Medium 3.5", "provider": "OpenRouter"},
             {"id": "gpt-openrouter", "name": "GPT-5.4 Mini", "provider": "OpenRouter"},
+            {"id": "gemini-openrouter", "name": "Google Gemini 3.7 Flash", "provider": "OpenRouter"},
+            {"id": "nemotron-openrouter", "name": "Nvidia Nemotron 3.5 Lightning", "provider": "OpenRouter"},
         ],
         "tts": [
-            {"id": "orpheus", "name": "Orpheus (English)", "provider": "Groq"},
+            # {"id": "orpheus", "name": "Orpheus (English)", "provider": "Groq"},
             {"id": "kokoro", "name": "Kokoro 82M", "provider": "OpenRouter"},
-            {"id": "gemini-tts", "name": "Gemini 3.1 Flash TTS", "provider": "OpenRouter"},
+            # {"id": "gemini-tts", "name": "Gemini 3.1 Flash TTS", "provider": "OpenRouter"},
             {"id": "qwen-tts", "name": "Qwen Audio 3.0 TTS", "provider": "OpenRouter"},
             {"id": "deepgram-aura", "name": "Deepgram Aura-2", "provider": "OpenRouter"},
+            {"id": "minimax-speech", "name": "MiniMax: Speech 2.8", "provider": "OpenRouter"}
         ],
     }

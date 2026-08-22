@@ -82,10 +82,8 @@ let currentAudio = null;    // the audio object currently playing
 let vadEnabled = false;
 let vadSpokeThisTake = false;
 
-function updateVadEnabled() {
-    vadEnabled = document.getElementById('cfg-vad').checked;
-    logDebug('info', 'VAD ' + (vadEnabled ? 'enabled' : 'disabled'));
-}
+let nudges = [];
+let nudgeCount = 0;
 
 // THEME
 function toggleTheme() {
@@ -127,11 +125,8 @@ async function speakText(text, token) {
     // play the audio and wait until it finishes
     await new Promise((resolve, reject) => {
         currentAudio = new Audio(audioUrl);
-        // currentAudio.onloadedmetadata = () =>
-        //     logDebug('info', `TTS duration: ${currentAudio.duration}s`);
         currentAudio.onended = () => resolve();
         currentAudio.onerror = () => reject(new Error('Audio playback failed'));
-        // currentAudio.oncanplaythrough = () => currentAudio.play().catch(reject);
         currentAudio.oncanplaythrough = () => {
             if (token !== runId) {resolve(); return;}
             currentAudio.play().catch(reject);
@@ -203,6 +198,7 @@ async function startQuiz() {
         if (token !== runId) return;
 
         currentQuestion = data.next_question;
+        nudges = data.nudges || [];
         currentQuestionIndex = 0;
 
         setQuestion(currentQuestion);
@@ -230,6 +226,8 @@ async function startQuiz() {
 // speak the current question, then open the microphone
 async function askQuestion(token) {
     document.getElementById('q-num').textContent = currentQuestionIndex + 1;
+
+    nudgeCount = 0;
 
     logDebug('info', `Q${currentQuestionIndex + 1}: ${currentQuestion}`);
  
@@ -299,16 +297,44 @@ async function startRecording() {
 
         releaseMicrophone();
 
-        // VAD gave up without hearing speech - reopen the mic instead of
-        // sending silence through the pipeline
+        // VAD gave up without hearing speech
         if (vadEnabled && !vadSpokeThisTake) {
             if (token !== runId || !isRunning) return;
-            setState(STATES.LISTENING);
-            setTimeout(() => {
-                if (token === runId && isRunning) startRecording();
-            }, 0);
+
+            if (nudgeCount < nudges.length) {
+                const line = nudges[nudgeCount];
+                nudgeCount++;
+                setState(STATES.SPEAKING);
+                try {
+                    await speakText(line, token);
+                } catch (err) {
+                    logDebug('warn', 'nudge TTS failed: ' + err.message);
+                }
+
+                if (token !== runId || !isRunning) return;
+
+                setState(STATES.LISTENING);
+                
+                setTimeout(() => {
+                    if (token === runId && isRunning)
+                        startRecording();
+                }, 0);
+
+                return;
+            }
+
+            logDebug('info', 'no answer after nudges, skipping question');
+            await processRecording(audioBlob, mimeType, token, '');
+
             return;
         }
+
+        //     setState(STATES.LISTENING);
+        //     setTimeout(() => {
+        //         if (token === runId && isRunning) startRecording();
+        //     }, 0);
+        //     return;
+        // }
 
         await processRecording(audioBlob, mimeType, token);
     };
@@ -409,9 +435,10 @@ function vadThreshold() {
 
 function updateVadEnabled() {
     vadEnabled = document.getElementById('cfg-vad').checked;
-    // with VAD on the mic manages itself; the button would be a second,
-    // conflicting way to control the same recording
-    document.getElementById('btn-mic').hidden = vadEnabled;
+
+    const mic = document.getElementById('btn-mic');
+    mic.classList.toggle('vad-hidden', vadEnabled);
+    
     logDebug('info', 'VAD ' + (vadEnabled ? 'enabled' : 'disabled'));
 }
 
@@ -436,42 +463,52 @@ function releaseMicrophone() {
 
 // PIPELINE: transcribe - evaluate - speak feedback - next question
 
-async function processRecording(audioBlob, mimeType, token) {
+async function processRecording(audioBlob, mimeType, token, knownTranscript = null) {
     setState(STATES.PROCESSING);
 
-    if (audioBlob.size < 1000) {
-        logDebug('warn', 'recording too short (' + audioBlob.size + 'bytes)');
-        setTranscript('(too short — speak a little longer)');
-        setState(STATES.LISTENING);
-        if (vadEnabled && token === runId) await startRecording();
-        return;
-    }
+    let sttTranscript;
+    let sttLatencyMs = 0;
 
     try {
-        // send audio to /api/transcribe
-        const extension = mimeTypeToExtension(mimeType);
-        const formData = new FormData();
-        formData.append('audio', audioBlob, `recording.${extension}`);
+        if (knownTranscript !== null) {
+            sttTranscript = knownTranscript;
+            setTranscript('(no answer)');
+            logDebug('info', 'no answer submitted');
+        } else {
+            if (audioBlob.size < 1000) {
+                logDebug('warn', 'recording too short (' + audioBlob.size + 'bytes)');
+                setTranscript('(too short — speak a little longer)');
+                setState(STATES.LISTENING);
+                if (vadEnabled && token === runId) await startRecording();
+                return;
+            }
 
-        const transcribeResponse = await fetch(
-            `/api/transcribe?stt_model=${encodeURIComponent(config.stt)}`,
-            { method: 'POST', body: formData }
-            // browser sets automatically Content-Type header here
-        );
+            // send audio to /api/transcribe
+            const extension = mimeTypeToExtension(mimeType);
+            const formData = new FormData();
+            formData.append('audio', audioBlob, `recording.${extension}`);
 
-        if (!transcribeResponse.ok) {
-            const detail = await transcribeResponse.text();
-            throw new Error(`STT failed (HTTP ${transcribeResponse.status}): ${detail.slice(0, 200)}`);
+            const transcribeResponse = await fetch(
+                `/api/transcribe?stt_model=${encodeURIComponent(config.stt)}`,
+                { method: 'POST', body: formData }
+                // browser sets automatically Content-Type header here
+            );
+
+            if (!transcribeResponse.ok) {
+                const detail = await transcribeResponse.text();
+                throw new Error(`STT failed (HTTP ${transcribeResponse.status}): ${detail.slice(0, 200)}`);
+            }
+
+            const transcribeData = await transcribeResponse.json();
+
+            sttTranscript = transcribeData.transcript;
+            sttLatencyMs = transcribeData.latency_ms?.stt || 0;
+
+            setTranscript(sttTranscript);
+            logDebug('info', `transcript: "${sttTranscript}" (${sttLatencyMs}ms)`)
+
         }
-
-        const transcribeData = await transcribeResponse.json();
-
-        const sttTranscript = transcribeData.transcript;
-        const sttLatencyMs = transcribeData.latency_ms?.stt || 0;
-
-        setTranscript(sttTranscript);
-        logDebug('info', `transcript: "${sttTranscript}" (${sttLatencyMs}ms)`)
-
+        
         // if (!isRunning) return;     // if user clicked 'stop'
         if (token !== runId) return;
 
@@ -480,10 +517,10 @@ async function processRecording(audioBlob, mimeType, token) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                transcript: sttTranscript,
-                question: currentQuestion,
-                question_index: currentQuestionIndex,
-                config: config,
+            transcript: sttTranscript,
+            question: currentQuestion,
+            question_index: currentQuestionIndex,
+            config: config,
             }),
         });
 
@@ -499,7 +536,7 @@ async function processRecording(audioBlob, mimeType, token) {
         if (evalData.is_correct) correctCount++;
         turnCount++;
         results.push(!!evalData.is_correct);
- 
+
         showVerdict(evalData.is_correct);
         renderTicks();
         updateScore();

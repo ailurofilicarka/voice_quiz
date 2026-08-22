@@ -203,6 +203,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 
 .btn-mic { background: var(--you-dim); border-color: var(--you); color: var(--you); }
 .btn-mic.is-recording { background: var(--you); color: #fff; }
+.btn-mic.vad-hidden {display: none !important;}
 
 .btn-ghost { color: var(--muted); }
 .btn-ghost:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }

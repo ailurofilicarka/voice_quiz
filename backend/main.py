@@ -12,7 +12,7 @@ import wave
 from llm import groq_client, openrouter_client
 from tts import tts_groq, tts_openrouter
 from stt import whisper_groq, stt_openrouter
-from llm.hosts import GREETINGS
+from llm.hosts import GREETINGS, NUDGES
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -254,6 +254,7 @@ async def start_quiz(request: StartRequest):
         "success": True,
         "message": f"{greeting} {first_question}",
         "next_question": first_question,
+        "nudges": NUDGES.get(request.personality, NUDGES["classic"]),
         "quiz_done": False,
         "latency_ms": {
             "llm": int(llm_latency_ms),

@@ -136,6 +136,15 @@ GREETINGS = {
     "teacher":     "Hello, and welcome! Take your time, there's no pressure here. Let's begin.",
 }
 
+NUDGES = {
+    "classic":     ["Still with us? Take your time.", "Last chance — anything at all?"],
+    "sarcastic":   ["Oh, we're doing silence now? Bold.", "I'll take that as a no, then."],
+    "robot":       ["Awaiting input. No signal detected.", "Input timeout imminent."],
+    "villain":     ["Speechless already? How delicious.", "Silence won't save you."],
+    "commentator": ["The crowd holds its breath!", "Time's running out on this one!"],
+    "teacher":     ["No rush — have a think.", "Shall we move on? It's alright."],
+}
+
 def build_evaluator_prompt(host: str = DEFAULT_HOST) -> str:
     personality = HOSTS.get(host, HOSTS[DEFAULT_HOST]).strip()
     return EVALUATOR_PROMPT.replace("<<HOST_PERSONALITY>>", personality)

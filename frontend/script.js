@@ -5,6 +5,7 @@ const STATES = {
     LISTENING: 'listening',
     PROCESSING: 'processing',
     ERROR: 'error',
+    CALIBRATING: 'calibrating',
 };
 
 let currentState = STATES.IDLE;
@@ -15,18 +16,19 @@ const STATE_LABELS = {
     listening: 'listening',
     processing: 'processing',
     error: 'error',
+    calibrating: 'get ready',
 };
 
 // change currentState
 function setState(newState) {
     currentState = newState;
 
-    document.getElementById('state-dot').className = 'state-dot' + newState;
+    document.getElementById('state-dot').className = 'state-dot ' + newState;
     document.getElementById('state-label').textContent = STATE_LABELS[newState];
  
     bars.quiz.active = newState === STATES.SPEAKING;
 
-    if (newState !== STATES.LISTENING) bars.you.active = false;
+    if (newState !== STATES.LISTENING && newState !== STATES.CALIBRATING) bars.you.active = false;
  
     document.getElementById('btn-mic').disabled = newState !== STATES.LISTENING;
  
@@ -75,6 +77,15 @@ let audioStream = null;      // raw mic stram from the browser
 
 // AUDIO PLAYBACK STATE
 let currentAudio = null;    // the audio object currently playing
+
+// VAD
+let vadEnabled = false;
+let vadSpokeThisTake = false;
+
+function updateVadEnabled() {
+    vadEnabled = document.getElementById('cfg-vad').checked;
+    logDebug('info', 'VAD ' + (vadEnabled ? 'enabled' : 'disabled'));
+}
 
 // THEME
 function toggleTheme() {
@@ -168,7 +179,7 @@ async function startQuiz() {
     updateScore();
     sizeCanvas();
 
-    logDebug('info', `quiz started · ${topic} · ${personality} · ${totalQuestions} questions`);
+    logDebug('info', ` quiz started · ${topic} · ${personality} · ${totalQuestions} questions`);
     setState(STATES.PROCESSING);
 
     try {
@@ -206,6 +217,7 @@ async function startQuiz() {
         if (token !== runId) return;
         
         setState(STATES.LISTENING);
+        if (vadEnabled && token === runId) await startRecording();
 
     } catch (err) {
         logDebug('error', 'startQuiz failed: ' + err.message);
@@ -236,6 +248,7 @@ async function askQuestion(token) {
     // if (!isRunning) return;
     if (token !== runId) return;
     setState(STATES.LISTENING);
+    if (vadEnabled && token === runId) await startRecording();
 }
 
 async function pushToTalk() {
@@ -251,8 +264,11 @@ async function pushToTalk() {
     await startRecording();
 }
 
+let currentRecordingToken = 0;
+
 async function startRecording() {
     const token = runId;
+    currentRecordingToken = token;
     try {
         // request microphone access
         audioStream = await navigator.mediaDevices.getUserMedia({audio: true});
@@ -283,6 +299,17 @@ async function startRecording() {
 
         releaseMicrophone();
 
+        // VAD gave up without hearing speech - reopen the mic instead of
+        // sending silence through the pipeline
+        if (vadEnabled && !vadSpokeThisTake) {
+            if (token !== runId || !isRunning) return;
+            setState(STATES.LISTENING);
+            setTimeout(() => {
+                if (token === runId && isRunning) startRecording();
+            }, 0);
+            return;
+        }
+
         await processRecording(audioBlob, mimeType, token);
     };
 
@@ -290,6 +317,8 @@ async function startRecording() {
 
     bars.you.active = true;
     startAnalyser(audioStream);
+    vadReset();
+    if (vadEnabled) setState(STATES.CALIBRATING);
 
     const mic = document.getElementById('btn-mic');
     mic.textContent = 'Stop';
@@ -297,10 +326,99 @@ async function startRecording() {
     logDebug('info', 'recording started');
 }
 
-function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
+let vadDebugCount = 0;
+function vadTick(token) {
+
+    if (!vadEnabled || !vadState) return;
+    if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+    if (token !== runId) return;              // stale run, ignore
+
+    const now = performance.now();
+    const level = currentLevel();
+    const elapsed = now - vadState.startedAt;
+
+    // measure the room for the first fraction of a second
+    if (vadState.calibrating) {
+        vadState.samples.push(level);
+
+        const calibElapsed = now - vadState.calibrationStart;
+
+        if (calibElapsed >= VAD.calibrationMs) {
+            const mean = vadState.samples.reduce((a, b) => a + b, 0) / vadState.samples.length;
+           
+            if (mean > VAD.maxNoiseFloor && !vadState.recalibrated) {
+                logDebug('warn', `VAD: noisy calibration ${mean.toFixed(4)}, retrying`);
+                vadState.firstFloor = mean;
+                vadState.samples = [];
+                vadState.calibrationStart = now;
+                vadState.recalibrated = true;
+                return;
+            }
+            vadState.noiseFloor = vadState.firstFloor 
+                ? Math.min(mean, vadState.firstFloor)
+                : mean;
+
+            vadState.calibrating = false;
+            setState(STATES.LISTENING);
+            logDebug('info', `VAD noise floor ${vadState.noiseFloor.toFixed(4)}, threshold ${vadThreshold().toFixed(4)}`);
+        }
+        return;
     }
+
+    // Do not judge speech at all until the player has had a chance to begin.
+    // TTS playback can still be audible in the first moments, which would
+    // otherwise set hasSpoken and trigger an immediate stop.
+    if (elapsed < VAD.calibrationMs + VAD.graceMs) return;
+
+    const loud = level > vadThreshold();
+
+    if (loud) {
+        vadState.lastLoudAt = now;
+        if (!vadState.speechStartedAt) vadState.speechStartedAt = now;
+        if (!vadState.hasSpoken && now - vadState.speechStartedAt >= VAD.minSpeechMs) {
+            vadState.hasSpoken = true;
+            vadSpokeThisTake = true;
+        }
+    } else if (vadState.speechStartedAt && !vadState.hasSpoken) {
+        vadState.speechStartedAt = 0;         // too brief - a click or a knock
+    }
+
+    // stop once speech has happened and then stopped
+    if (vadState.hasSpoken && vadState.lastLoudAt && now - vadState.lastLoudAt >= VAD.silenceMs) {
+        logDebug('info', 'VAD: silence detected, stopping');
+        stopRecording();
+        return;
+    }
+
+    // nothing said at all - stop rather than record an empty room
+    if (!vadState.hasSpoken && elapsed >= VAD.noSpeechTimeoutMs) {
+        logDebug('info', 'VAD: no speech, listening again');
+        stopRecording();
+        return;
+    }
+
+    if (elapsed >= VAD.maxRecordingMs) {
+        logDebug('warn', 'VAD: max duration reached, stopping');
+        stopRecording();
+    }
+}
+
+function vadThreshold() {
+    return Math.max(VAD.minThreshold, vadState.noiseFloor * VAD.thresholdMultiplier);
+}
+
+function updateVadEnabled() {
+    vadEnabled = document.getElementById('cfg-vad').checked;
+    // with VAD on the mic manages itself; the button would be a second,
+    // conflicting way to control the same recording
+    document.getElementById('btn-mic').hidden = vadEnabled;
+    logDebug('info', 'VAD ' + (vadEnabled ? 'enabled' : 'disabled'));
+}
+
+function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+    mediaRecorder.stop();
+    vadState = null;
     const mic = document.getElementById('btn-mic');
     mic.textContent = 'Speak';
     mic.classList.remove('is-recording');
@@ -325,6 +443,7 @@ async function processRecording(audioBlob, mimeType, token) {
         logDebug('warn', 'recording too short (' + audioBlob.size + 'bytes)');
         setTranscript('(too short — speak a little longer)');
         setState(STATES.LISTENING);
+        if (vadEnabled && token === runId) await startRecording();
         return;
     }
 
@@ -608,6 +727,7 @@ function frame(t) {
     const flashing = performance.now() < verdict.until;
 
     if (analyser) analyser.getByteFrequencyData(freqData);
+    vadTick(currentRecordingToken);
  
     // the resting line takes the colour of whoever is active
     const lineColour = flashing ? verdict.colour
@@ -650,6 +770,49 @@ function stopAnalyser() {
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
     analyser = null;
     freqData = null;
+}
+
+const VAD = {
+    thresholdMultiplier: 3.5,   // speech must exceed noise floor by this factor
+    minThreshold: 0.035,        // floor, for very quiet rooms
+    silenceMs: 1800,            // quiet time before auto-stop
+    minSpeechMs: 150,           // ignore blips shorter than this
+    maxRecordingMs: 20000,      // hard safety cap
+    calibrationMs: 400,         // how long to measure the room at record start
+    noSpeechTimeoutMs: 8000,    // re-arm if nothing is said at all
+    graceMs: 2000,              // ignore audio while TTS may still be audible
+    maxNoiseFloor: 0.06,
+
+    speechFramesRequired: 3,
+};
+
+let vadState = null;
+
+function vadReset() {
+    vadSpokeThisTake = false;
+    vadState = {
+        noiseFloor: 0,
+        samples: [],
+        calibrating: true,
+        recalibrated: false,
+        startedAt: performance.now(),
+        speechStartedAt: 0,
+        lastLoudAt: 0,
+        hasSpoken: false,
+
+        consecutiveSpeechFrames: 0,
+
+        calibrationStart: performance.now(),
+        firstFloor: 0,
+    };
+}
+
+/** Mean amplitude of the current frame, 0..1. */
+function currentLevel() {
+    if (!freqData || !freqData.length) return 0;
+    let sum = 0;
+    for (let i = 0; i < freqData.length; i++) sum += freqData[i];
+    return (sum / freqData.length) / 255;
 }
 
 /* DEBUG PANEL FUNCTIONS */
@@ -757,4 +920,5 @@ countInput.addEventListener('input', () => {
 sizeCanvas();
 requestAnimationFrame(frame);
 updateConfig();
+updateVadEnabled();
 logDebug('info', 'app initialised, waiting for quiz start');

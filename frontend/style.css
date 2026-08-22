@@ -237,6 +237,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .state-dot.listening  { background: var(--you);  animation: blink 1.4s ease-in-out infinite; }
 .state-dot.processing { background: var(--think); animation: blink .8s ease-in-out infinite; }
 .state-dot.error      { background: var(--danger); }
+.state-dot.calibrating { background: var(--muted); animation: blink 1s ease-in-out infinite; }
 @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
 
 /* ---------- equalizer ---------- */
@@ -306,6 +307,12 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .log-t { flex-shrink: 0; opacity: .7; }
 .log-ok { color: var(--right); }
 .log-err { color: var(--danger); }
+
+.vad-toggle {
+    display: flex; align-items: center; gap: .5rem;
+    font-size: 11px; color: var(--muted); cursor: pointer;
+}
+.vad-toggle input { cursor: pointer; accent-color: var(--accent); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 520px) {

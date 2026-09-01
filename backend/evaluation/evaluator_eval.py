@@ -21,7 +21,7 @@ QUESTIONS_PATH = "eval_questions.csv"
 RESULTS_DIR = "../../results"
 
 MODELS = {
-    "llama-groq": (groq_client, "llama-3.3-70b-versatile"),
+    # "llama-groq": (groq_client, "llama-3.3-70b-versatile"),
     "qwen-openrouter": (openrouter_client, "qwen/qwen3.6-27b"),
     "mistral-openrouter": (openrouter_client, "mistralai/mistral-medium-3-5"),
     "gpt-openrouter": (openrouter_client, "openai/gpt-5.4-mini"),

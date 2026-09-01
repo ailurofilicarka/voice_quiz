@@ -252,7 +252,8 @@ async def start_quiz(request: StartRequest):
 
     return {
         "success": True,
-        "message": f"{greeting} {first_question}",
+        # "message": f"{greeting} {first_question}",
+        "message": greeting,
         "next_question": first_question,
         "nudges": NUDGES.get(request.personality, NUDGES["classic"]),
         "quiz_done": False,

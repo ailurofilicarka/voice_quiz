@@ -85,6 +85,10 @@ let vadSpokeThisTake = false;
 let nudges = [];
 let nudgeCount = 0;
 
+// TTS playback analyser
+let ttsAnalyser = null;
+let ttsFreqData = null;
+
 // THEME
 function toggleTheme() {
     const root = document.documentElement;
@@ -125,11 +129,38 @@ async function speakText(text, token) {
     // play the audio and wait until it finishes
     await new Promise((resolve, reject) => {
         currentAudio = new Audio(audioUrl);
-        currentAudio.onended = () => resolve();
-        currentAudio.onerror = () => reject(new Error('Audio playback failed'));
+
+        let ttsCtx = null;
+
+        const cleanup = () => {
+            ttsAnalyser = null;
+            ttsFreqData = null;
+            if (ttsCtx) { ttsCtx.close(); ttsCtx = null; }
+        };
+
+        try {
+            ttsCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (ttsCtx.state === 'suspended') ttsCtx.resume();
+
+            const source = ttsCtx.createMediaElementSource(currentAudio);
+            ttsAnalyser = ttsCtx.createAnalyser();
+            ttsAnalyser.fftSize = 256;
+            ttsAnalyser.smoothingTimeConstant = 0.65;
+
+            source.connect(ttsAnalyser);
+            ttsAnalyser.connect(ttsCtx.destination);   // REQUIRED - without this the audio is captured by Web Audio and never reaches the speakers
+            ttsFreqData = new Uint8Array(ttsAnalyser.frequencyBinCount);
+        } catch (err) {
+            // fall back to plain playback rather than risk routed-but-silent audio
+            logDebug('warn', 'TTS analyser unavailable: ' + err.message);
+            cleanup();
+        }
+
+        currentAudio.onended = () => { cleanup(); resolve(); };
+        currentAudio.onerror = () => { cleanup(); reject(new Error('Audio playback failed')); };
         currentAudio.oncanplaythrough = () => {
-            if (token !== runId) {resolve(); return;}
-            currentAudio.play().catch(reject);
+            if (token !== runId) {cleanup(); resolve(); return; }
+            currentAudio.play().catch(err => { cleanup(); reject(err); });
         };
     });
 
@@ -194,26 +225,46 @@ async function startQuiz() {
         }
 
         const data = await response.json();
-        // if (!isRunning) return;         // user pressed stop
+       // user pressed stop
         if (token !== runId) return;
 
         currentQuestion = data.next_question;
         nudges = data.nudges || [];
         currentQuestionIndex = 0;
 
-        setQuestion(currentQuestion);
+        // setQuestion(currentQuestion);
         setState(STATES.SPEAKING);
+        setQuestion('');
+
         try {
+            // speak greeting
             await speakText(data.message, token);
         } catch (err) {
             logDebug('warn', 'TTS failed: ' + err.message);
             await sleep(1500);
         }
-        // if (!isRunning) return;
+
         if (token !== runId) return;
         
-        setState(STATES.LISTENING);
-        if (vadEnabled && token === runId) await startRecording();
+        // show and speak first question
+        setQuestion(currentQuestion);
+
+        try {
+            await speakText(currentQuestion, token);
+        } catch (err) {
+            logDebug('warn', 'TTS failed: ' + err.message);
+            await sleep(1500);
+        }
+
+        if (token !== runId) return;
+
+        // setState(STATES.LISTENING);
+        // if (vadEnabled && token === runId) await startRecording();
+        if (vadEnabled && token === runId) {
+            await startRecording();
+        } else {
+            setState(STATES.LISTENING);
+        }
 
     } catch (err) {
         logDebug('error', 'startQuiz failed: ' + err.message);
@@ -243,10 +294,14 @@ async function askQuestion(token) {
         await sleep(1500);
     }
  
-    // if (!isRunning) return;
-    if (token !== runId) return;
-    setState(STATES.LISTENING);
-    if (vadEnabled && token === runId) await startRecording();
+    // if (token !== runId) return;
+    // setState(STATES.LISTENING);
+    // if (vadEnabled && token === runId) await startRecording();
+    if (vadEnabled && token == runId) {
+        await startRecording();
+    } else {
+        setState(STATES.LISTENING);
+    }
 }
 
 async function pushToTalk() {
@@ -329,13 +384,6 @@ async function startRecording() {
             return;
         }
 
-        //     setState(STATES.LISTENING);
-        //     setTimeout(() => {
-        //         if (token === runId && isRunning) startRecording();
-        //     }, 0);
-        //     return;
-        // }
-
         await processRecording(audioBlob, mimeType, token);
     };
 
@@ -352,7 +400,6 @@ async function startRecording() {
     logDebug('info', 'recording started');
 }
 
-let vadDebugCount = 0;
 function vadTick(token) {
 
     if (!vadEnabled || !vadState) return;
@@ -537,10 +584,6 @@ async function processRecording(audioBlob, mimeType, token, knownTranscript = nu
         turnCount++;
         results.push(!!evalData.is_correct);
 
-        showVerdict(evalData.is_correct);
-        renderTicks();
-        updateScore();
-
         const readMs = Math.min(2500, Math.max(600, sttTranscript.length * 40));
         await sleep(readMs);
         // if (!isRunning) return;
@@ -550,6 +593,11 @@ async function processRecording(audioBlob, mimeType, token, knownTranscript = nu
 
         // speak the LLM's feedback out loud
         setState(STATES.SPEAKING);
+
+        showVerdict(evalData.is_correct);
+        renderTicks();
+        updateScore();
+        
         let ttsMs = 0;
         try {
             ttsMs = await speakText(evalData.message, token);
@@ -725,14 +773,13 @@ function getLevels(ch, i, count, t) {
         return freqData[bin] / 255;
     }
 
-    const syllable = 0.55 + 0.45 * Math.sin(t * 0.006 + ch.seed)
-                          * Math.sin(t * 0.017 + ch.seed * 2);
-    const p = i / count;
-    const shape = Math.sin(Math.PI * p) ** 0.6;      // quieter towards the edges
-    const detail = 0.45
-        + 0.30 * Math.sin(p * 26 + t * 0.011 + ch.seed)
-        + 0.25 * Math.sin(p * 57 - t * 0.008 + ch.seed * 3);
-    return Math.max(0, syllable * shape * detail);
+    if (ch === bars.quiz && ttsFreqData) {
+        const usable = Math.floor(ttsFreqData.length * 0.45);
+        const bin = Math.min(usable - 1, Math.floor((i / count) * usable));
+        return ttsFreqData[bin] / 255;
+    }
+
+    return 0;
 }
  
 function drawChannel(ch, colour, offset, t) {
@@ -764,6 +811,7 @@ function frame(t) {
     const flashing = performance.now() < verdict.until;
 
     if (analyser) analyser.getByteFrequencyData(freqData);
+    if (ttsAnalyser) ttsAnalyser.getByteFrequencyData(ttsFreqData);
     vadTick(currentRecordingToken);
  
     // the resting line takes the colour of whoever is active
@@ -813,14 +861,12 @@ const VAD = {
     thresholdMultiplier: 3.5,   // speech must exceed noise floor by this factor
     minThreshold: 0.035,        // floor, for very quiet rooms
     silenceMs: 1800,            // quiet time before auto-stop
-    minSpeechMs: 150,           // ignore blips shorter than this
+    minSpeechMs: 300,           // ignore blips shorter than this
     maxRecordingMs: 20000,      // hard safety cap
     calibrationMs: 400,         // how long to measure the room at record start
     noSpeechTimeoutMs: 8000,    // re-arm if nothing is said at all
-    graceMs: 2000,              // ignore audio while TTS may still be audible
-    maxNoiseFloor: 0.06,
-
-    speechFramesRequired: 3,
+    graceMs: 800,              // ignore audio while TTS may still be audible
+    maxNoiseFloor: 0.06,        // reject a calibration this noisy and measure again
 };
 
 let vadState = null;
@@ -836,9 +882,6 @@ function vadReset() {
         speechStartedAt: 0,
         lastLoudAt: 0,
         hasSpoken: false,
-
-        consecutiveSpeechFrames: 0,
-
         calibrationStart: performance.now(),
         firstFloor: 0,
     };

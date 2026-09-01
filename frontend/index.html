@@ -156,8 +156,8 @@
                         <div>
                             <label for="sel-stt">STT</label>
                             <select id="sel-stt" onchange="updateConfig()">
-                                <option value="whisper-large-v3">Whisper Large V3 Turbo · OR</option>
                                 <option value="gpt4o-transcribe">GPT-4o Mini Transcribe · OR</option>
+                                <option value="whisper-large-v3">Whisper Large V3 Turbo · OR</option>
                                 <option value="nova-3">Deepgram Nova-3 · OR</option>
                                 <option value="voxtral-stt">Voxtral Transcribe · OR</option>
                             </select>
@@ -165,9 +165,9 @@
                         <div>
                             <label for="sel-llm">LLM</label>
                             <select id="sel-llm" onchange="updateConfig()">
+                                <option value="gpt-openrouter">GPT-5.4 Mini · OR</option>
                                 <option value="qwen-openrouter">Qwen 3.6 27B · OR</option>
                                 <option value="mistral-openrouter">Mistral Medium 3.5 · OR</option>
-                                <option value="gpt-openrouter">GPT-5.4 Mini · OR</option>
                                 <option value="gemini-openrouter">Gemini 3.7 Flash · OR</option>
                                 <option value="nemotron-openrouter">NVIDIA Nemotron 3.5 Lightning · OR</option>
                             </select>
@@ -175,12 +175,10 @@
                         <div>
                             <label for="sel-tts">TTS</label>
                             <select id="sel-tts" onchange="updateConfig()">
-                                <!-- <option value="orpheus">Orpheus · Groq</option> -->
+                                <option value="minimax-speech">MiniMax: Speech 2.8 · OR</option>
                                 <option value="kokoro">Kokoro 82M · OR</option>
-                                <!-- <option value="gemini-tts">Gemini 3.1 Flash · OR</option> -->
                                 <option value="qwen-tts">Qwen Audio 3.0 · OR</option>
                                 <option value="deepgram-aura">Deepgram Aura-2 · OR</option>
-                                <option value="minimax-speech">MiniMax: Speech 2.8 · OR</option>
                             </select>
                         </div>
                     </div>

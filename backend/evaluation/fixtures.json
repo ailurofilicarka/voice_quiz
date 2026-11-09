@@ -8,23 +8,9 @@
       "length": "short"
     },
     {
-      "file": "short_correct_2.webm",
-      "question": "What is the largest planet in our solar system?",
-      "expected_transcript": "Jupiter",
-      "expected_verdict": "CORRECT",
-      "length": "short"
-    },
-    {
       "file": "medium_correct.webm",
       "question": "What is the capital city of France?",
       "expected_transcript": "I think it's Paris",
-      "expected_verdict": "CORRECT",
-      "length": "medium"
-    },
-    {
-      "file": "medium_correct_2.webm",
-      "question": "What is the largest planet in our solar system?",
-      "expected_transcript": "It's Jupiter, the biggest one",
       "expected_verdict": "CORRECT",
       "length": "medium"
     },
@@ -36,11 +22,39 @@
       "length": "long"
     },
     {
+      "file": "short_correct2.webm",
+      "question": "What is the largest planet in our solar system?",
+      "expected_transcript": "Jupiter",
+      "expected_verdict": "CORRECT",
+      "length": "short"
+    },
+    {
+      "file": "medium_correct2.webm",
+      "question": "What is the largest planet in our solar system?",
+      "expected_transcript": "It's Jupiter, the biggest one",
+      "expected_verdict": "CORRECT",
+      "length": "medium"
+    },
+    {
+      "file": "long_correct2.webm",
+      "question": "What is the largest planet in our solar system?",
+      "expected_transcript": "Um, I'm pretty sure that largest planet in our solar system is Jupiter.",
+      "expected_verdict": "CORRECT",
+      "length": "long"
+    },
+    {
       "file": "short_wrong.webm",
       "question": "What is the capital city of Australia?",
       "expected_transcript": "Sydney",
       "expected_verdict": "WRONG",
       "length": "short"
+    },
+    {
+      "file": "medium_wrong.webm",
+      "question": "What is the capital city of Australia?",
+      "expected_transcript": "I think it's Sydney",
+      "expected_verdict": "WRONG",
+      "length": "medium"
     },
     {
       "file": "long_wrong.webm",
@@ -50,9 +64,37 @@
       "length": "long"
     },
     {
+      "file": "short_wrong2.webm",
+      "question": "Which planet is known as the Red Planet?",
+      "expected_transcript": "Venus",
+      "expected_verdict": "WRONG",
+      "length": "short"
+    },
+    {
+      "file": "medium_wrong2.webm",
+      "question": "Which planet is known as the Red Planet?",
+      "expected_transcript": "I think it's Venus",
+      "expected_verdict": "WRONG",
+      "length": "medium"
+    },
+    {
+      "file": "long_wrong2.webm",
+      "question": "Which planet is known as the Red Planet?",
+      "expected_transcript": "I think it's Venus or Mars, I will say Venus",
+      "expected_verdict": "WRONG",
+      "length": "long"
+    },
+    {
       "file": "dont_know.webm",
       "question": "What is the chemical symbol for gold?",
       "expected_transcript": "I don't know",
+      "expected_verdict": "WRONG",
+      "length": "short"
+    },
+    {
+      "file": "dont_know2.webm",
+      "question": "What is the chemical symbol for gold?",
+      "expected_transcript": "No idea",
       "expected_verdict": "WRONG",
       "length": "short"
     },
@@ -69,6 +111,27 @@
       "expected_transcript": "",
       "expected_verdict": "WRONG",
       "length": "silence"
+    },
+    {
+      "file": "silence2.webm",
+      "question": "What is the tallest mountain in the world?",
+      "expected_transcript": "",
+      "expected_verdict": "WRONG",
+      "length": "silence"
+    },
+    {
+      "file": "symbol_correct.webm",
+      "question": "What is the chemical symbol for gold?",
+      "expected_transcript": "Au",
+      "expected_verdict": "CORRECT",
+      "length": "short"
+    },
+    {
+      "file": "number_correct.webm",
+      "question": "In what year did World War II end?",
+      "expected_transcript": "1945",
+      "expected_verdict": "CORRECT",
+      "length": "short"
     }
   ]
 }

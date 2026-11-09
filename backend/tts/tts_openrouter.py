@@ -14,9 +14,7 @@ BASE_URL = "https://openrouter.ai/api/v1"
 
 TTS_MODELS = {
     "1": ("Kokoro 82M", "hexgrad/kokoro-82m", "af_aoede", "pcm"),
-    # "2": ("Gemini 3.1 Flash TTS", "google/gemini-3.1-flash-tts-preview", "Charon", "pcm"),
     "3": ("Qwen Audio 3.0 TTS", "qwen/qwen-audio-3.0-tts-flash", "loongjohn", "mp3"),
-    # "4": ("Mistral: Voxtral Mini TTS", "mistralai/voxtral-mini-tts-2603", "en_paul_sad", "mp3"),
     "5": ("Deepgram: Aura-2", "deepgram/aura-2", "aura-2-thalia-en", "pcm"),
     "6": ("MiniMax: Speech 2.8", "minimax/speech-2.8-turbo", "Friendly_Person", "mp3"),
 }

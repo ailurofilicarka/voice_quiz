@@ -446,7 +446,6 @@ async def list_models():
             {"id": "voxtral-stt", "name": "Voxtral Transcribe", "provider": "OpenRouter"},
         ],
         "llm": [
-            # {"id": "llama-groq", "name": "LLama 3.3 70B", "provider": "Groq"},
             {"id": "qwen-openrouter", "name": "Qwen 3.6 27B", "provider": "OpenRouter"},
             {"id": "mistral-openrouter", "name": "Mistral Medium 3.5", "provider": "OpenRouter"},
             {"id": "gpt-openrouter", "name": "GPT-5.4 Mini", "provider": "OpenRouter"},
@@ -454,9 +453,7 @@ async def list_models():
             {"id": "nemotron-openrouter", "name": "Nvidia Nemotron 3.5 Lightning", "provider": "OpenRouter"},
         ],
         "tts": [
-            # {"id": "orpheus", "name": "Orpheus (English)", "provider": "Groq"},
             {"id": "kokoro", "name": "Kokoro 82M", "provider": "OpenRouter"},
-            # {"id": "gemini-tts", "name": "Gemini 3.1 Flash TTS", "provider": "OpenRouter"},
             {"id": "qwen-tts", "name": "Qwen Audio 3.0 TTS", "provider": "OpenRouter"},
             {"id": "deepgram-aura", "name": "Deepgram Aura-2", "provider": "OpenRouter"},
             {"id": "minimax-speech", "name": "MiniMax: Speech 2.8", "provider": "OpenRouter"}

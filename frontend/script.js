@@ -42,20 +42,22 @@ function setStatus(text, isError = false) {
     el.classList.toggle('error', !!isError);
 }
 
-function setQuestion(text, dim = false) {
+function setQuestion(text) {
     const el = document.getElementById('question');
     el.textContent = text || '';
-    el.classList.toggle('dim', dim);
 }
 
-/* QUIZ FLOW FUNCTIONS */
+/* QUIZ STATE */
 
+// chanegs whenever quiz starts or ends; async chains compare against it
+// and stop if it has changed, so a turn cannot resume into a new quiz
 let runId = 0;
 
+// filled from the model menus by updateConfig() at startup
 let config = {
-    stt: 'whisper-groq',
-    llm: 'llama-groq',
-    tts: 'orpheus',
+    stt: '',
+    llm: '',
+    tts: '',
 };
 
 let totalQuestions = 5;
@@ -74,20 +76,25 @@ let currentQuestionIndex = 0;
 let mediaRecorder = null;   // MediaRecorder instance
 let recordingChunks = [];   // audio data chunks
 let audioStream = null;      // raw mic stram from the browser
+let currentRecordingToken = 0; // runId of the recording in progress
 
 // AUDIO PLAYBACK STATE
 let currentAudio = null;    // the audio object currently playing
 
 // VAD
-let vadEnabled = false;
+let vadEnabled = true;
 let vadSpokeThisTake = false;
 
+// host prompts when the player says nothing
 let nudges = [];
 let nudgeCount = 0;
 
 // TTS playback analyser
 let ttsAnalyser = null;
 let ttsFreqData = null;
+let audioCtx = null;
+let analyser = null;
+let freqData = null;
 
 // THEME
 function toggleTheme() {
@@ -258,8 +265,6 @@ async function startQuiz() {
 
         if (token !== runId) return;
 
-        // setState(STATES.LISTENING);
-        // if (vadEnabled && token === runId) await startRecording();
         if (vadEnabled && token === runId) {
             await startRecording();
         } else {
@@ -294,10 +299,7 @@ async function askQuestion(token) {
         await sleep(1500);
     }
  
-    // if (token !== runId) return;
-    // setState(STATES.LISTENING);
-    // if (vadEnabled && token === runId) await startRecording();
-    if (vadEnabled && token == runId) {
+    if (vadEnabled && token === runId) {
         await startRecording();
     } else {
         setState(STATES.LISTENING);
@@ -316,8 +318,6 @@ async function pushToTalk() {
     // "speak" is pressed
     await startRecording();
 }
-
-let currentRecordingToken = 0;
 
 async function startRecording() {
     const token = runId;
@@ -576,7 +576,6 @@ async function processRecording(audioBlob, mimeType, token, knownTranscript = nu
         }
 
         const evalData = await evaluateResponse.json();
-        // if (!isRunning) return;
         if (token !== runId) return;
 
         // update score and continue the quiz
@@ -586,7 +585,7 @@ async function processRecording(audioBlob, mimeType, token, knownTranscript = nu
 
         const readMs = Math.min(2500, Math.max(600, sttTranscript.length * 40));
         await sleep(readMs);
-        // if (!isRunning) return;
+
         if (token !== runId) return;
 
         setTranscript(evalData.message, 'Host')
@@ -608,7 +607,6 @@ async function processRecording(audioBlob, mimeType, token, knownTranscript = nu
 
         recordTurn(evalData.is_correct, sttLatencyMs, evalData.latency_ms?.llm || 0, ttsMs);
 
-        // if (!isRunning) return;
         if (token !== runId) return;
 
         // is quiz done?
@@ -836,11 +834,6 @@ function frame(t) {
     requestAnimationFrame(frame);
 }
 
-
-let audioCtx = null;
-let analyser = null;
-let freqData = null;
-
 function startAnalyser(stream) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioCtx.createMediaStreamSource(stream);
@@ -897,7 +890,7 @@ function currentLevel() {
 
 /* DEBUG PANEL FUNCTIONS */
 
-let debugVisible = true;
+let debugVisible = false;
 
 function toggleDebug() {
     debugVisible = !debugVisible;

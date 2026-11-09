@@ -117,7 +117,7 @@ body::before {
     font-size: 1.5rem; letter-spacing: 0; color: var(--accent); font-weight: 500;
 }
 
-/* question count: slider with a live readout */
+/* question count */
 .range-row { display: flex; align-items: center; gap: .8rem; }
 .range-row .edge { font-size: 10px; color: var(--muted); flex-shrink: 0; }
 
@@ -169,7 +169,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .host-card .desc { font-size: 11px; color: var(--muted); display: block; line-height: 1.35; margin-top: .15rem; }
 .host-card.is-active { border-color: var(--accent); background: var(--quiz-soft); }
 
-/* category: pill chips */
+/* category */
 .chip-row { display: flex; flex-wrap: wrap; gap: .45rem; }
 .chip {
     cursor: pointer; white-space: nowrap;
@@ -254,7 +254,6 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
     text-align: center;
     transition: opacity .3s ease;
 }
-.question.dim { opacity: .35; }
 
 /* ---------- transcript ---------- */
 .transcript {
